@@ -103,6 +103,10 @@ class SettingsStore(context: Context) {
         private val SHOW_SPEED_GRAPH = booleanPreferencesKey("show_speed_graph")
         
         private val HAS_SEEN_WELCOME_DIALOG = booleanPreferencesKey("has_seen_welcome_dialog")
+
+        // Privateer: режим разработчика. OFF (по умолчанию) = простой экран для обывателя,
+        // ON = полный UI qWDTT (профили, деплой, логи, исключения).
+        private val DEVELOPER_MODE = booleanPreferencesKey("developer_mode")
     }
 
     private val dataStore = appContext.dataStore
@@ -179,6 +183,14 @@ class SettingsStore(context: Context) {
     suspend fun saveHasSeenWelcomeDialog(hasSeen: Boolean) {
         dataStore.edit { preferences ->
             preferences[HAS_SEEN_WELCOME_DIALOG] = hasSeen
+        }
+    }
+
+    val developerMode: Flow<Boolean> = dataStore.data.map { it[DEVELOPER_MODE] ?: false }
+
+    suspend fun saveDeveloperMode(enabled: Boolean) {
+        dataStore.edit { preferences ->
+            preferences[DEVELOPER_MODE] = enabled
         }
     }
 

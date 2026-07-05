@@ -78,6 +78,7 @@ import com.wdtt.client.ui.SettingsTab
 import com.wdtt.client.ui.DeployTab
 import com.wdtt.client.ui.ExceptionsTab
 import com.wdtt.client.ui.InfoTab
+import com.wdtt.client.ui.PrivateerHome
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.first
@@ -89,8 +90,36 @@ import kotlin.math.sin
 
 class MainActivity : ComponentActivity() {
 
+    private var pendingConnect = false
+
     private val vpnLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        // VPN permission dialog finished
+        // VPN permission dialog finished — если ждали коннекта, стартуем туннель
+        if (pendingConnect) {
+            pendingConnect = false
+            startTunnelService()
+        }
+    }
+
+    // Privateer: простой connect/disconnect для потребительского экрана.
+    // Параметры туннеля берутся из сохранённого профиля (applyProfile уже записал их в настройки).
+    fun connectTunnel() {
+        val vpnIntent = VpnService.prepare(this)
+        if (vpnIntent != null) {
+            pendingConnect = true
+            vpnLauncher.launch(vpnIntent)
+        } else {
+            startTunnelService()
+        }
+    }
+
+    private fun startTunnelService() {
+        val i = Intent(this, TunnelService::class.java).apply { action = "START" }
+        if (Build.VERSION.SDK_INT >= 26) startForegroundService(i) else startService(i)
+    }
+
+    fun disconnectTunnel() {
+        val i = Intent(this, TunnelService::class.java).apply { action = "STOP" }
+        startService(i)
     }
 
     private val batteryLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
@@ -251,6 +280,7 @@ fun MainScreen(
 ) {
     val unreadErrors by TunnelManager.unreadErrorCount.collectAsStateWithLifecycle()
     val tunnelRunning by TunnelManager.running.collectAsStateWithLifecycle()
+    val developerMode by settingsStore.developerMode.collectAsStateWithLifecycle(initialValue = false)
     val showBlockerWarning by TunnelManager.showBlockerWarning.collectAsStateWithLifecycle()
     val hasSeenWelcomeDialog by settingsStore.hasSeenWelcomeDialog.collectAsStateWithLifecycle(initialValue = true)
     val view = LocalView.current
@@ -332,6 +362,10 @@ fun MainScreen(
     Box(modifier = Modifier.fillMaxSize()) {
         AppBackdrop(modifier = Modifier.matchParentSize())
 
+        if (!developerMode) {
+            // Privateer: простой потребительский экран (подписка + подключение).
+            PrivateerHome(settingsStore = settingsStore)
+        } else
         Scaffold(
             contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Top),
             containerColor = Color.Transparent,

@@ -365,7 +365,7 @@ class TunnelService : Service() {
         )
 
         return NotificationCompat.Builder(this, TUNNEL_NOTIFICATION_CHANNEL_ID)
-            .setContentTitle("qWDTT")
+            .setContentTitle("Privateer")
             .setContentText(text)
             .setSmallIcon(R.drawable.ic_stat_connected)
             .setOngoing(true)
