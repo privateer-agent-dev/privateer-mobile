@@ -848,7 +848,7 @@ fun SettingsTabContent(
                             ) {
                                 Button(
                                     onClick = {
-                                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/darkbitVPN"))
+                                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/privateer_support"))
                                         context.startActivity(intent)
                                     },
                                     shape = RoundedCornerShape(8.dp),
@@ -919,7 +919,7 @@ fun SettingsTabContent(
                                 ) {
                                     Button(
                                         onClick = {
-                                            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://t.me/darkbit_vpnbot"))
+                                            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://t.me/privateer_support"))
                                             context.startActivity(intent)
                                         },
                                         modifier = Modifier.weight(1f),
@@ -931,12 +931,12 @@ fun SettingsTabContent(
                                         shape = RoundedCornerShape(12.dp),
                                         contentPadding = PaddingValues(vertical = 10.dp)
                                     ) {
-                                        Text("🤖 @darkbit_vpnbot", maxLines = 1, style = MaterialTheme.typography.labelMedium)
+                                        Text("🤖 @privateer_support", maxLines = 1, style = MaterialTheme.typography.labelMedium)
                                     }
                                     
                                     Button(
                                         onClick = {
-                                            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://t.me/sidylinkbot"))
+                                            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://t.me/privateer_support"))
                                             context.startActivity(intent)
                                         },
                                         modifier = Modifier.weight(1f),
@@ -948,7 +948,7 @@ fun SettingsTabContent(
                                         shape = RoundedCornerShape(12.dp),
                                         contentPadding = PaddingValues(vertical = 10.dp)
                                     ) {
-                                        Text("🤖 @sidylinkbot", maxLines = 1, style = MaterialTheme.typography.labelMedium)
+                                        Text("🤖 @privateer_support", maxLines = 1, style = MaterialTheme.typography.labelMedium)
                                     }
                                 }
                             }
@@ -1042,7 +1042,7 @@ fun SettingsTabContent(
                                     Устройство: ${Build.MANUFACTURER} ${Build.MODEL}
                                 """.trimIndent()
                                 val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                                clipboard.setPrimaryClip(ClipData.newPlainText("qWDTT Report", reportText))
+                                clipboard.setPrimaryClip(ClipData.newPlainText("Privateer Report", reportText))
                                 Toast.makeText(context, "Отчёт о системе скопирован!", Toast.LENGTH_SHORT).show()
                             },
                             modifier = Modifier.fillMaxWidth(),

@@ -1,0 +1,55 @@
+name: Build APK
+
+# Собирает debug-APK Privateer Mobile: Go-ядро (libclient.so под 3 ABI) → gradle.
+# Артефакты качаются со страницы запуска. Ставятся на телефон без подписи-релиза.
+on:
+  push:
+    branches: [privateer, main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+
+      # На GitHub-раннерах Android SDK и несколько NDK уже установлены.
+      # Берём последний предустановленный NDK — build-native-libs.sh читает ANDROID_NDK_HOME.
+      - name: Point to preinstalled NDK
+        run: |
+          echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
+          echo "Using NDK at: $ANDROID_NDK_LATEST_HOME"
+
+      - name: Gradle cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle.kts', 'gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: gradle-${{ runner.os }}-
+
+      - name: Build native Go libs (libclient.so)
+        run: bash scripts/build-native-libs.sh
+
+      - name: Build debug APKs
+        run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
+
+      - name: Upload APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: privateer-mobile-debug-apks
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error

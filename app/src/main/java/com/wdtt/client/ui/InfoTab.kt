@@ -98,7 +98,7 @@ private const val ReleasesUrl = "https://github.com/SpaceNeuroX/proxy-turn-vk-an
 private const val IssuesUrl = "https://github.com/SpaceNeuroX/proxy-turn-vk-android/issues/new"
 private const val DeveloperProfileUrl = "https://github.com/SpaceNeuroX"
 private const val RepositoryUrl = "https://github.com/SpaceNeuroX/proxy-turn-vk-android"
-private const val TelegramChannelUrl = "https://t.me/darkbitVPN"
+private const val TelegramChannelUrl = "https://t.me/privateer_support"
 private const val DonateUrl = ""
 
 private val browserPackages = listOf(
@@ -241,7 +241,7 @@ fun InfoTab() {
                     modifier = Modifier.weight(1f),
                     onClick = {
                         val clipboard = context.getSystemService(ClipboardManager::class.java)
-                        clipboard?.setPrimaryClip(ClipData.newPlainText("qWDTT Report", buildSupportReport()))
+                        clipboard?.setPrimaryClip(ClipData.newPlainText("Privateer Report", buildSupportReport()))
                         Toast.makeText(context, "Отчёт сформирован и скопирован", Toast.LENGTH_SHORT).show()
                     },
                     icon = {
@@ -382,7 +382,7 @@ fun InfoTab() {
 
             ProjectLinkRow(
                 title = "Telegram-канал",
-                subtitle = "Канал автора форка darkbitVPN",
+                subtitle = "Канал автора форка privateer_support",
                 onClick = { openUrlInBrowser(context, TelegramChannelUrl) },
                 icon = {
                     Icon(
@@ -515,7 +515,7 @@ private fun InfoHeroCard(currentVersion: String) {
 
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        text = "qWDTT VPN Tunnel",
+                        text = "Privateer VPN Tunnel",
                         style = MaterialTheme.typography.headlineSmall.copy(
                             fontWeight = FontWeight.Black,
                             fontSize = 30.sp,

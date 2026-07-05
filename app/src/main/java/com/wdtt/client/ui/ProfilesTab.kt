@@ -981,7 +981,7 @@ fun ProfilesTab(
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     Text(
-                        "qWDTT автоматически считывает и импортирует настройки из ссылок, файлов и QR-кодов.",
+                        "Privateer автоматически считывает и импортирует настройки из ссылок, файлов и QR-кодов.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -1340,7 +1340,7 @@ fun ProfilesTab(
                             ) {
                                 Button(
                                     onClick = {
-                                        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://t.me/darkbit_vpnbot"))
+                                        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://t.me/privateer_support"))
                                         context.startActivity(intent)
                                     },
                                     modifier = Modifier.weight(1f),
@@ -1352,12 +1352,12 @@ fun ProfilesTab(
                                     shape = RoundedCornerShape(12.dp),
                                     contentPadding = PaddingValues(vertical = 10.dp)
                                 ) {
-                                    Text("🤖 @darkbit_vpnbot", maxLines = 1, style = MaterialTheme.typography.labelSmall)
+                                    Text("🤖 @privateer_support", maxLines = 1, style = MaterialTheme.typography.labelSmall)
                                 }
                                 
                                 Button(
                                     onClick = {
-                                        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://t.me/sidylinkbot"))
+                                        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://t.me/privateer_support"))
                                         context.startActivity(intent)
                                     },
                                     modifier = Modifier.weight(1f),
@@ -1369,7 +1369,7 @@ fun ProfilesTab(
                                     shape = RoundedCornerShape(12.dp),
                                     contentPadding = PaddingValues(vertical = 10.dp)
                                 ) {
-                                    Text("🤖 @sidylinkbot", maxLines = 1, style = MaterialTheme.typography.labelSmall)
+                                    Text("🤖 @privateer_support", maxLines = 1, style = MaterialTheme.typography.labelSmall)
                                 }
                             }
                         }

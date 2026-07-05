@@ -455,7 +455,7 @@ fun MainScreen(
                     ) {
                         Button(
                             onClick = {
-                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/darkbit_vpnbot"))
+                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/privateer_support"))
                                 context.startActivity(intent)
                             },
                             modifier = Modifier.weight(1f),
@@ -466,12 +466,12 @@ fun MainScreen(
                             shape = RoundedCornerShape(12.dp),
                             contentPadding = PaddingValues(vertical = 10.dp)
                         ) {
-                            Text("🤖 @darkbit_vpnbot", maxLines = 1, style = MaterialTheme.typography.labelMedium)
+                            Text("🤖 @privateer_support", maxLines = 1, style = MaterialTheme.typography.labelMedium)
                         }
                         
                         Button(
                             onClick = {
-                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/sidylinkbot"))
+                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/privateer_support"))
                                 context.startActivity(intent)
                             },
                             modifier = Modifier.weight(1f),
@@ -482,7 +482,7 @@ fun MainScreen(
                             shape = RoundedCornerShape(12.dp),
                             contentPadding = PaddingValues(vertical = 10.dp)
                         ) {
-                            Text("🤖 @sidylinkbot", maxLines = 1, style = MaterialTheme.typography.labelMedium)
+                            Text("🤖 @privateer_support", maxLines = 1, style = MaterialTheme.typography.labelMedium)
                         }
                     }
                     Spacer(Modifier.height(4.dp))
@@ -497,7 +497,7 @@ fun MainScreen(
                     )
                     Button(
                         onClick = {
-                            val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://t.me/darkbitVPN"))
+                            val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://t.me/privateer_support"))
                             context.startActivity(intent)
                         },
                         modifier = Modifier.fillMaxWidth(),
@@ -508,7 +508,7 @@ fun MainScreen(
                         shape = RoundedCornerShape(12.dp),
                         contentPadding = PaddingValues(vertical = 10.dp)
                     ) {
-                        Text("📢 @darkbitVPN", style = MaterialTheme.typography.labelLarge)
+                        Text("📢 @privateer_support", style = MaterialTheme.typography.labelLarge)
                     }
                     Text(
                         "Просто скопируйте текст профиля или конфигурационный файл и импортируйте его на вкладке «Профили». Эта памятка также доступна в настройках.",

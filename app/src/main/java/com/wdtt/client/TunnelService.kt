@@ -339,7 +339,7 @@ class TunnelService : Service() {
     private fun createNotificationChannel() {
         val channel = NotificationChannel(
             TUNNEL_NOTIFICATION_CHANNEL_ID,
-            "qWDTT Туннель",
+            "Privateer Туннель",
             NotificationManager.IMPORTANCE_DEFAULT // ВАЖНО: DEFAULT, а не LOW, иначе на многих китайских прошивках иконка скрывается
         ).apply {
             description = "Уведомление о работе туннеля"
