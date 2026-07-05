@@ -185,7 +185,15 @@ object TunnelManager {
                     } catch (_: Exception) {
                         activeProfileId = ""
                     }
-                    
+
+                    // Privateer: on-connect авторизация — если подписка ЯВНО неактивна,
+                    // не подключаем. При сетевых проблемах пропускаем (fail-open).
+                    if (!SubscriptionAuth.isAllowed(appContext, activeProfileId)) {
+                        updateLog("sub_inactive", "❌ Подписка неактивна. Продлите доступ.", 99, true)
+                        running.value = false
+                        return@launch
+                    }
+
                     if (!forceStart) {
                         try {
                             if (!isNetworkBlocked()) {

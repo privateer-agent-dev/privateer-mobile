@@ -141,6 +141,10 @@ class MainActivity : ComponentActivity() {
 
         // URI файла .qwdtt, ожидающего импорта
         val pendingFileUri = mutableStateOf<android.net.Uri?>(null)
+
+        // Privateer: текст подписки/конфига из deep-link (privateer:// или qwdtt://),
+        // ожидающий импорта на домашнем экране.
+        val pendingImportText = mutableStateOf<String?>(null)
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -151,9 +155,15 @@ class MainActivity : ComponentActivity() {
 
     private fun handleIncomingIntent(intent: Intent?) {
         if (intent?.action == Intent.ACTION_VIEW) {
-            val uri = intent.data
-            if (uri != null) {
-                pendingFileUri.value = uri
+            val uri = intent.data ?: return
+            when (uri.scheme?.lowercase()) {
+                "privateer" -> {
+                    // privateer://import?url=<encoded подписка> или privateer://<что-угодно>?url=…
+                    val url = uri.getQueryParameter("url") ?: uri.getQueryParameter("sub")
+                    pendingImportText.value = url ?: uri.toString()
+                }
+                "qwdtt" -> pendingImportText.value = uri.toString()
+                else -> pendingFileUri.value = uri
             }
         }
     }

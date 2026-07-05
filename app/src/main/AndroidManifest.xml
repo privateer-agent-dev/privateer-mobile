@@ -69,6 +69,14 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:scheme="content" />
             </intent-filter>
+            <!-- Privateer: онбординг по тапу — privateer:// и qwdtt:// открывают приложение -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="privateer" />
+                <data android:scheme="qwdtt" />
+            </intent-filter>
         </activity>
 
         <service

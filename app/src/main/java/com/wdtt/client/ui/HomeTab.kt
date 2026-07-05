@@ -92,6 +92,19 @@ fun PrivateerHome(settingsStore: SettingsStore) {
         }
     }
 
+    // импорт по deep-link (privateer:// / qwdtt://) — тап по ссылке из бота
+    val pendingImport = MainActivity.pendingImportText.value
+    LaunchedEffect(pendingImport) {
+        val input = pendingImport ?: return@LaunchedEffect
+        MainActivity.pendingImportText.value = null
+        val res = importSubscription(profilesStore, context, input)
+        Toast.makeText(
+            context,
+            if (res.isSuccess) "Подписка добавлена" else (res.exceptionOrNull()?.message ?: "Ошибка импорта"),
+            Toast.LENGTH_LONG
+        ).show()
+    }
+
     val hasProfile = profiles.isNotEmpty()
     val statusText = when {
         running -> "Подключено"
@@ -221,20 +234,13 @@ fun PrivateerHome(settingsStore: SettingsStore) {
                     onClick = {
                         busy = true
                         scope.launch {
-                            val input = subInput.trim()
-                            val isHttp = input.startsWith("http://", true) || input.startsWith("https://", true)
-                            val res = if (isHttp) profilesStore.addSubscription(input).map { 1 }
-                            else profilesStore.addFromText(input)
+                            val res = importSubscription(profilesStore, context, subInput)
+                            busy = false
                             if (res.isSuccess) {
-                                profilesStore.profiles.first().firstOrNull()?.let {
-                                    profilesStore.applyProfile(context, it.id)
-                                }
-                                busy = false
                                 showAddDialog = false
                                 subInput = ""
                                 Toast.makeText(context, "Готово", Toast.LENGTH_SHORT).show()
                             } else {
-                                busy = false
                                 Toast.makeText(
                                     context,
                                     res.exceptionOrNull()?.message ?: "Не удалось добавить",
@@ -321,6 +327,19 @@ private fun ServerRow(
             Icon(Icons.Filled.CheckCircle, contentDescription = "выбран", tint = accent, modifier = Modifier.size(20.dp))
         }
     }
+}
+
+// Единая точка импорта: http(s) → addSubscription (запоминает URL для автообновления),
+// иначе (qwdtt://config / JSON / base64) → addFromText. Затем применяет первый сервер.
+private suspend fun importSubscription(store: ProfilesStore, context: Context, rawInput: String): Result<Int> {
+    val input = rawInput.trim()
+    if (input.isEmpty()) return Result.failure(IllegalArgumentException("Пустая ссылка"))
+    val isHttp = input.startsWith("http://", ignoreCase = true) || input.startsWith("https://", ignoreCase = true)
+    val res = if (isHttp) store.addSubscription(input).map { 1 } else store.addFromText(input)
+    if (res.isSuccess) {
+        store.profiles.first().firstOrNull()?.let { store.applyProfile(context, it.id) }
+    }
+    return res
 }
 
 private fun clipboardTextOrEmpty(context: Context): String {
