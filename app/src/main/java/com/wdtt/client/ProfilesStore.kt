@@ -384,6 +384,19 @@ class ProfilesStore(context: Context) {
         newId
     }
 
+    // Privateer: импорт из вставленного текста (qwdtt://config, JSON или base64).
+    // Для http(s) используем addSubscription — там ещё сохраняется URL для автообновления.
+    suspend fun addFromText(raw: String): Result<Int> = withContext(Dispatchers.IO) {
+        val parsed = SubscriptionImport.parsePayload(raw.trim())
+            ?: return@withContext Result.failure(IllegalArgumentException("Не распознал ссылку/конфиг"))
+        if (parsed.profiles.isEmpty()) {
+            return@withContext Result.failure(IllegalArgumentException("В ссылке нет серверов"))
+        }
+        val name = parsed.subscriptionName?.trim()?.takeIf { it.isNotEmpty() } ?: "Privateer"
+        importProfilesToGroup(name, parsed.profiles, fromSubscription = false)
+        Result.success(parsed.profiles.size)
+    }
+
     suspend fun importProfilesToGroup(groupName: String, profiles: List<ConnectionProfile>, fromSubscription: Boolean = false) = withContext(Dispatchers.IO) {
         val groupId = resolveGroupIdForImport(groupName, fromSubscription)
         for (p in profiles) {

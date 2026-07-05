@@ -280,7 +280,6 @@ fun MainScreen(
 ) {
     val unreadErrors by TunnelManager.unreadErrorCount.collectAsStateWithLifecycle()
     val tunnelRunning by TunnelManager.running.collectAsStateWithLifecycle()
-    val developerMode by settingsStore.developerMode.collectAsStateWithLifecycle(initialValue = false)
     val showBlockerWarning by TunnelManager.showBlockerWarning.collectAsStateWithLifecycle()
     val hasSeenWelcomeDialog by settingsStore.hasSeenWelcomeDialog.collectAsStateWithLifecycle(initialValue = true)
     val view = LocalView.current
@@ -362,109 +361,8 @@ fun MainScreen(
     Box(modifier = Modifier.fillMaxSize()) {
         AppBackdrop(modifier = Modifier.matchParentSize())
 
-        if (!developerMode) {
-            // Privateer: простой потребительский экран (подписка + подключение).
-            PrivateerHome(settingsStore = settingsStore)
-        } else
-        Scaffold(
-            contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Top),
-            containerColor = Color.Transparent,
-        ) { padding ->
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .consumeWindowInsets(padding)
-                    .pointerInput(selectedTab) {
-                        var totalDrag = 0f
-                        detectHorizontalDragGestures(
-                            onDragStart = {
-                                totalDrag = 0f
-                                dragTargetIndex = -1
-                                dragProgress = 0f
-                            },
-                            onDragCancel = {
-                                dragTargetIndex = -1
-                                dragProgress = 0f
-                            },
-                            onDragEnd = {
-                                if (dragTargetIndex in navItems.indices && dragProgress >= 0.5f) {
-                                    selectedTab = dragTargetIndex
-                                    if (selectedTab == 4) TunnelManager.clearUnreadErrors()
-                                }
-                                dragTargetIndex = -1
-                                dragProgress = 0f
-                            }
-                        ) { change, dragAmount ->
-                            change.consume()
-                            totalDrag += dragAmount
-                            if (abs(totalDrag) < 12f) {
-                                dragTargetIndex = -1
-                                dragProgress = 0f
-                                return@detectHorizontalDragGestures
-                            }
-
-                            val candidate = if (totalDrag < 0f) selectedTab + 1 else selectedTab - 1
-                            if (candidate !in navItems.indices) {
-                                dragTargetIndex = -1
-                                dragProgress = 0f
-                                return@detectHorizontalDragGestures
-                            }
-
-                            dragTargetIndex = candidate
-                            dragProgress = (abs(totalDrag) / 180f).coerceIn(0f, 1f)
-                        }
-                    }
-            ) {
-                androidx.compose.animation.Crossfade(
-                    targetState = selectedTab,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(bottom = navOverlayReserve),
-                    label = "tab_content"
-                ) { tab ->
-                    when (tab) {
-                        0 -> SettingsTab(
-                            themeMode = themeMode,
-                            onThemeChange = onThemeChange,
-                            isDynamicColor = isDynamicColor,
-                            onDynamicColorChange = onDynamicColorChange,
-                            currentPalette = currentPalette,
-                            onPaletteChange = onPaletteChange,
-                            onNavigateToLogs = { selectedTab = 4 }
-                        )
-                        1 -> DeployTab()
-                        2 -> ProfilesTab(
-                            onProfileApplied = { selectedTab = 0 },
-                            importFileUri = MainActivity.pendingFileUri.value,
-                            onImportHandled = { MainActivity.pendingFileUri.value = null }
-                        )
-                        3 -> ExceptionsTab()
-                        4 -> LogsTab()
-                    }
-                }
-
-                ProxyNavigationBar(
-                    navItems = navItems,
-                    selectedTab = selectedTab,
-                    dragTargetIndex = dragTargetIndex,
-                    dragProgress = dragProgress,
-                    unreadErrors = unreadErrors,
-                    tunnelRunning = tunnelRunning,
-                    onTabSelected = { index ->
-                        if (selectedTab != index) {
-                            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                            selectedTab = index
-                            if (index == 4) TunnelManager.clearUnreadErrors()
-                        }
-                        dragTargetIndex = -1
-                        dragProgress = 0f
-                    },
-                    modifier = Modifier.align(Alignment.BottomCenter)
-                )
-            }
-        }
-
+        // Privateer: единственный экран — простой потребительский UI.
+        PrivateerHome(settingsStore = settingsStore)
     }
 
     if (!hasSeenWelcomeDialog) {

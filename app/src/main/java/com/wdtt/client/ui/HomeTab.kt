@@ -3,7 +3,18 @@ package com.wdtt.client.ui
 import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -12,15 +23,19 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -32,6 +47,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -43,11 +60,12 @@ import com.wdtt.client.MainActivity
 import com.wdtt.client.ProfilesStore
 import com.wdtt.client.SettingsStore
 import com.wdtt.client.TunnelManager
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
-// Privateer: простой потребительский экран. Два действия — добавить подписку и подключиться.
-// Вся мощь qWDTT (профили, деплой, логи) прячется за тумблером «Режим разработчика».
+// Privateer: единственный потребительский экран — статус, кнопка подключения,
+// список серверов и добавление подписки. Никаких вкладок/режимов.
 @Composable
 fun PrivateerHome(settingsStore: SettingsStore) {
     val context = LocalContext.current
@@ -60,86 +78,120 @@ fun PrivateerHome(settingsStore: SettingsStore) {
     val currentProfileId by settingsStore.currentProfileId.collectAsStateWithLifecycle(initialValue = "")
 
     var showAddDialog by remember { mutableStateOf(false) }
-    var subUrl by remember { mutableStateOf("") }
+    var subInput by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
+    var connecting by remember { mutableStateOf(false) }
+
+    // как только туннель поднялся — снимаем состояние "подключение…"
+    LaunchedEffect(running) { if (running) connecting = false }
+    // страховка: не залипать в "подключение…" если коннект не удался
+    LaunchedEffect(connecting) {
+        if (connecting) {
+            delay(25000)
+            if (!TunnelManager.running.value) connecting = false
+        }
+    }
 
     val hasProfile = profiles.isNotEmpty()
-    val accent = if (running) Color(0xFF2E7D32) else MaterialTheme.colorScheme.primary
+    val statusText = when {
+        running -> "Подключено"
+        connecting -> "Подключение…"
+        else -> "Отключено"
+    }
+    val accent by animateColorAsState(
+        targetValue = if (running) Color(0xFF2E7D32) else if (connecting) Color(0xFFF9A825) else MaterialTheme.colorScheme.primary,
+        animationSpec = tween(400), label = "accent"
+    )
+
+    fun connectSelected(profileId: String?) {
+        scope.launch {
+            val id = profileId ?: profiles.firstOrNull()?.id ?: return@launch
+            profilesStore.applyProfile(context, id)
+            if (running) {
+                // переключение сервера — переподключаемся
+                MainActivity.currentActivity?.disconnectTunnel()
+                delay(600)
+            }
+            connecting = true
+            MainActivity.currentActivity?.connectTunnel()
+        }
+    }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 28.dp, vertical = 24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 24.dp, vertical = 20.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text("Privateer", fontSize = 34.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(8.dp))
-        Text(
-            text = if (running) "Подключено" else "Отключено",
-            color = accent,
-            fontSize = 18.sp,
-            fontWeight = FontWeight.SemiBold
-        )
-        if (running) {
-            Spacer(Modifier.height(4.dp))
-            Text(stats, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
+        Text("Privateer", fontSize = 30.sp, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(24.dp))
 
-        Spacer(Modifier.height(48.dp))
-
-        Button(
+        // ── Кнопка подключения с пульсацией ──
+        ConnectButton(
+            running = running,
+            connecting = connecting,
+            accent = accent,
             onClick = {
                 if (running) {
                     MainActivity.currentActivity?.disconnectTunnel()
+                    connecting = false
                 } else if (!hasProfile) {
+                    subInput = clipboardTextOrEmpty(context)
                     showAddDialog = true
                 } else {
-                    scope.launch {
-                        // применяем профиль, если ещё не выбран
-                        if (currentProfileId.isEmpty() || profiles.none { it.id == currentProfileId }) {
-                            profilesStore.applyProfile(context, profiles.first().id)
-                        }
-                        MainActivity.currentActivity?.connectTunnel()
-                    }
+                    connectSelected(currentProfileId.takeIf { it.isNotEmpty() })
                 }
-            },
-            shape = CircleShape,
-            colors = ButtonDefaults.buttonColors(containerColor = accent),
-            modifier = Modifier.size(200.dp)
-        ) {
+            }
+        )
+
+        Spacer(Modifier.height(16.dp))
+        Text(statusText, color = accent, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+        if (running && stats.isNotBlank() && stats != "Ожидание данных...") {
+            Spacer(Modifier.height(6.dp))
             Text(
-                text = if (running) "Отключить" else "Подключить",
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Bold
+                stats,
+                fontSize = 13.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
 
-        Spacer(Modifier.height(40.dp))
+        Spacer(Modifier.height(28.dp))
+
+        // ── Список серверов ──
+        if (hasProfile) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Серверы", fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                Text("${profiles.size}", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Spacer(Modifier.height(10.dp))
+            profiles.forEach { p ->
+                ServerRow(
+                    name = p.name.ifBlank { "Сервер" },
+                    selected = p.id == currentProfileId,
+                    accent = accent,
+                    onClick = { connectSelected(p.id) }
+                )
+                Spacer(Modifier.height(8.dp))
+            }
+            Spacer(Modifier.height(8.dp))
+        }
 
         OutlinedButton(
             onClick = {
-                subUrl = clipboardTextOrEmpty(context)
+                subInput = clipboardTextOrEmpty(context)
                 showAddDialog = true
             },
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text(if (hasProfile) "Обновить подписку" else "Добавить подписку")
+            Text(if (hasProfile) "Добавить / обновить подписку" else "Добавить подписку")
         }
-
-        Spacer(Modifier.height(48.dp))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text("Режим разработчика", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Switch(
-                checked = false,
-                onCheckedChange = { scope.launch { settingsStore.saveDeveloperMode(it) } }
-            )
-        }
+        Spacer(Modifier.height(16.dp))
     }
 
     if (showAddDialog) {
@@ -148,14 +200,14 @@ fun PrivateerHome(settingsStore: SettingsStore) {
             title = { Text("Подписка Privateer") },
             text = {
                 Column {
-                    Text("Вставьте ссылку на подписку из бота.", fontSize = 14.sp)
+                    Text("Вставьте ссылку из бота (подписку или конфиг).", fontSize = 14.sp)
                     Spacer(Modifier.height(12.dp))
                     OutlinedTextField(
-                        value = subUrl,
-                        onValueChange = { subUrl = it },
+                        value = subInput,
+                        onValueChange = { subInput = it },
                         singleLine = false,
                         modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text("https://…") }
+                        placeholder = { Text("https://…  или  qwdtt://…") }
                     )
                     if (busy) {
                         Spacer(Modifier.height(12.dp))
@@ -165,24 +217,27 @@ fun PrivateerHome(settingsStore: SettingsStore) {
             },
             confirmButton = {
                 TextButton(
-                    enabled = !busy && subUrl.isNotBlank(),
+                    enabled = !busy && subInput.isNotBlank(),
                     onClick = {
                         busy = true
                         scope.launch {
-                            val res = profilesStore.addSubscription(subUrl.trim())
+                            val input = subInput.trim()
+                            val isHttp = input.startsWith("http://", true) || input.startsWith("https://", true)
+                            val res = if (isHttp) profilesStore.addSubscription(input).map { 1 }
+                            else profilesStore.addFromText(input)
                             if (res.isSuccess) {
                                 profilesStore.profiles.first().firstOrNull()?.let {
                                     profilesStore.applyProfile(context, it.id)
                                 }
                                 busy = false
                                 showAddDialog = false
-                                subUrl = ""
-                                Toast.makeText(context, "Подписка добавлена", Toast.LENGTH_SHORT).show()
+                                subInput = ""
+                                Toast.makeText(context, "Готово", Toast.LENGTH_SHORT).show()
                             } else {
                                 busy = false
                                 Toast.makeText(
                                     context,
-                                    res.exceptionOrNull()?.message ?: "Не удалось добавить подписку",
+                                    res.exceptionOrNull()?.message ?: "Не удалось добавить",
                                     Toast.LENGTH_LONG
                                 ).show()
                             }
@@ -197,11 +252,84 @@ fun PrivateerHome(settingsStore: SettingsStore) {
     }
 }
 
+@Composable
+private fun ConnectButton(
+    running: Boolean,
+    connecting: Boolean,
+    accent: Color,
+    onClick: () -> Unit
+) {
+    val infinite = rememberInfiniteTransition(label = "pulse")
+    val pulse by infinite.animateFloat(
+        initialValue = 1f,
+        targetValue = if (running || connecting) 1.12f else 1f,
+        animationSpec = infiniteRepeatable(tween(1100), RepeatMode.Reverse),
+        label = "pulseScale"
+    )
+    Box(contentAlignment = Alignment.Center, modifier = Modifier.size(230.dp)) {
+        // внешнее кольцо-пульс
+        Box(
+            modifier = Modifier
+                .size(210.dp)
+                .scale(if (running || connecting) pulse else 1f)
+                .clip(CircleShape)
+                .background(accent.copy(alpha = 0.12f))
+        )
+        // основная кнопка
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .size(168.dp)
+                .clip(CircleShape)
+                .background(accent)
+                .clickable(onClick = onClick)
+        ) {
+            Text(
+                text = if (running) "Отключить" else if (connecting) "…" else "Подключить",
+                color = Color.White,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
+
+@Composable
+private fun ServerRow(
+    name: String,
+    selected: Boolean,
+    accent: Color,
+    onClick: () -> Unit
+) {
+    val border = if (selected) accent else MaterialTheme.colorScheme.outlineVariant
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .border(1.dp, border, RoundedCornerShape(14.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Filled.Public, contentDescription = null, tint = accent, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.size(12.dp))
+            Text(name, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+        }
+        if (selected) {
+            Icon(Icons.Filled.CheckCircle, contentDescription = "выбран", tint = accent, modifier = Modifier.size(20.dp))
+        }
+    }
+}
+
 private fun clipboardTextOrEmpty(context: Context): String {
     return try {
         val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
         val text = cm?.primaryClip?.getItemAt(0)?.text?.toString()?.trim() ?: ""
-        if (text.startsWith("http://") || text.startsWith("https://") || text.startsWith("qwdtt:") || text.startsWith("privateer:")) text else ""
+        if (text.startsWith("http://") || text.startsWith("https://") ||
+            text.startsWith("qwdtt:") || text.startsWith("privateer:")
+        ) text else ""
     } catch (_: Exception) {
         ""
     }
