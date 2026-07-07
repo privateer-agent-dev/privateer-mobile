@@ -56,7 +56,9 @@ object SubscriptionImport {
         if (trimmed.isEmpty()) return null
 
         var jsonStr = trimmed
-        if (!trimmed.startsWith("[") && !trimmed.startsWith("{") && !trimmed.startsWith("qwdtt:")) {
+        if (!trimmed.startsWith("[") && !trimmed.startsWith("{") &&
+            !trimmed.startsWith("qwdtt:") && !trimmed.startsWith("privateer:")
+        ) {
             try {
                 val decoded = android.util.Base64.decode(trimmed, android.util.Base64.DEFAULT)
                 jsonStr = String(decoded, Charsets.UTF_8).trim()
@@ -64,8 +66,14 @@ object SubscriptionImport {
             }
         }
 
-        if (jsonStr.startsWith("qwdtt://config") || jsonStr.startsWith("qwdtt:config")) {
-            val single = parseQwdttUri(jsonStr) ?: return null
+        // Privateer: свой брендированный конфиг-линк privateer://config?... (плюс легаси qwdtt://)
+        if (jsonStr.startsWith("qwdtt://config") || jsonStr.startsWith("qwdtt:config") ||
+            jsonStr.startsWith("privateer://config") || jsonStr.startsWith("privateer:config")
+        ) {
+            val normalized = jsonStr
+                .replace("privateer://config", "qwdtt://config")
+                .replace("privateer:config", "qwdtt://config")
+            val single = parseQwdttUri(normalized) ?: return null
             return ParsedRemoteSubscription(profiles = listOf(single), subscriptionName = single.name)
         }
 
