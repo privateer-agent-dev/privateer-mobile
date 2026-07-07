@@ -319,8 +319,8 @@ fun MainScreen(
     }
 
     LaunchedEffect(updateCheckIntervalHours) {
-        // Privateer: апдейт-чек qWDTT отключён (форк — не шлём людей на страницу qWDTT)
-        if (true || updateCheckIntervalHours == UPDATE_CHECK_NEVER) return@LaunchedEffect
+        // Privateer: апдейт-чек смотрит на НАШИ GitHub Releases (folada2007), см. AppUpdate.kt
+        if (updateCheckIntervalHours == UPDATE_CHECK_NEVER) return@LaunchedEffect
 
         val intervalMillis = updateIntervalHoursToMillis(updateCheckIntervalHours)
             ?: updateIntervalHoursToMillis(DEFAULT_UPDATE_CHECK_INTERVAL_HOURS)
