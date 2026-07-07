@@ -319,7 +319,8 @@ fun MainScreen(
     }
 
     LaunchedEffect(updateCheckIntervalHours) {
-        if (updateCheckIntervalHours == UPDATE_CHECK_NEVER) return@LaunchedEffect
+        // Privateer: апдейт-чек qWDTT отключён (форк — не шлём людей на страницу qWDTT)
+        if (true || updateCheckIntervalHours == UPDATE_CHECK_NEVER) return@LaunchedEffect
 
         val intervalMillis = updateIntervalHoursToMillis(updateCheckIntervalHours)
             ?: updateIntervalHoursToMillis(DEFAULT_UPDATE_CHECK_INTERVAL_HOURS)
@@ -375,9 +376,9 @@ fun MainScreen(
         PrivateerHome(settingsStore = settingsStore)
     }
 
-    if (!hasSeenWelcomeDialog) {
+    if (false) { // Privateer: приветственный попап убран (ссылался на удалённые вкладки)
         AlertDialog(
-            onDismissRequest = { 
+            onDismissRequest = {
                 scope.launch { settingsStore.saveHasSeenWelcomeDialog(true) }
             },
             text = {

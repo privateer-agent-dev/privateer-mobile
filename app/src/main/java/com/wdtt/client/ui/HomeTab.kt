@@ -51,12 +51,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -71,12 +75,18 @@ import kotlinx.coroutines.launch
 
 // Privateer: единственный экран. Тёмный минимализм — чёрный орб с неон-кольцом,
 // имя PRIVATEER, список серверов, добавление подписки. Диагностика — лонг-пресс по имени.
+private const val TWO_PI = 6.2831855f
 private val BG = Color(0xFF070709)
 private val CARD = Color(0xFF101014)
 private val TXT = Color(0xFFEDEDF2)
 private val TXT_DIM = Color(0xFF8A8A96)
-private val NEON = listOf(
-    Color(0xFF7A5CFF), Color(0xFF2E9BFF), Color(0xFF25E6C8), Color(0xFF7A5CFF)
+private val ACCENT = Color(0xFF57C9B5)          // приглушённый циан — статус/акцент
+// Приглушённая люксовая палитра для «жидких» волн орба (Siri-стиль)
+private val WAVE1 = Color(0xFF2F6D8C)           // muted teal-blue
+private val WAVE2 = Color(0xFF3B4E8A)           // muted indigo
+private val WAVE3 = Color(0xFF4A3F73)           // muted violet
+private val RING = listOf(                        // мягкое кольцо, низкая яркость
+    Color(0xFF33566E), Color(0xFF3A4E7A), Color(0xFF3E4E6E), Color(0xFF33566E)
 )
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -122,7 +132,7 @@ fun PrivateerHome(settingsStore: SettingsStore) {
         else -> "Отключено"
     }
     val statusColor by animateColorAsState(
-        targetValue = if (running) Color(0xFF25E6C8) else if (connecting) Color(0xFF7A5CFF) else TXT_DIM,
+        targetValue = if (running) ACCENT else if (connecting) WAVE2 else TXT_DIM,
         animationSpec = tween(400), label = "status"
     )
     val trafficMb = remember(stats) { parseTrafficMb(stats) }
@@ -201,12 +211,13 @@ fun PrivateerHome(settingsStore: SettingsStore) {
                 color = TXT,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Medium,
+                textAlign = TextAlign.Center,
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(14.dp))
                     .border(1.dp, Color(0xFF26262E), RoundedCornerShape(14.dp))
                     .clickable { subInput = clipboardTextOrEmpty(context); showAddDialog = true }
-                    .padding(vertical = 16.dp),
+                    .padding(horizontal = 20.dp, vertical = 16.dp),
             )
             Spacer(Modifier.height(20.dp))
         }
@@ -258,12 +269,14 @@ fun PrivateerHome(settingsStore: SettingsStore) {
 private fun ConnectOrb(running: Boolean, connecting: Boolean, onClick: () -> Unit) {
     val active = running || connecting
     val t = rememberInfiniteTransition(label = "orb")
-    val angle by t.animateFloat(
-        0f, 360f, infiniteRepeatable(tween(7000, easing = LinearEasing)), label = "rot"
-    )
-    val glow by t.animateFloat(
-        0.30f, 0.65f, infiniteRepeatable(tween(1700), RepeatMode.Reverse), label = "glow"
-    )
+    // фазы волн (разные периоды → «живое» перетекание, как у Siri)
+    val p1 by t.animateFloat(0f, TWO_PI, infiniteRepeatable(tween(3600, easing = LinearEasing)), label = "p1")
+    val p2 by t.animateFloat(0f, TWO_PI, infiniteRepeatable(tween(5200, easing = LinearEasing)), label = "p2")
+    val p3 by t.animateFloat(0f, TWO_PI, infiniteRepeatable(tween(6800, easing = LinearEasing)), label = "p3")
+    val ringRot by t.animateFloat(0f, 360f, infiniteRepeatable(tween(14000, easing = LinearEasing)), label = "ring")
+    // амплитуда волн плавно поднимается при подключении и спадает в покое
+    val amp by animateFloatAsState(if (active) 1f else 0.18f, tween(900), label = "amp")
+
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier.size(240.dp).clip(CircleShape).clickable(onClick = onClick)
@@ -271,33 +284,73 @@ private fun ConnectOrb(running: Boolean, connecting: Boolean, onClick: () -> Uni
         Canvas(Modifier.fillMaxSize()) {
             val c = center
             val outer = size.minDimension / 2f
-            val ringR = outer * 0.72f
-            // мягкое свечение
+            val innerR = outer * 0.86f
+
+            // едва заметное свечение
             drawCircle(
                 brush = Brush.radialGradient(
-                    listOf(NEON[1].copy(alpha = if (active) glow else 0.12f), Color.Transparent),
+                    listOf(WAVE1.copy(alpha = if (active) 0.22f else 0.06f), Color.Transparent),
                     center = c, radius = outer
                 ),
                 radius = outer, center = c
             )
-            // неон-кольцо (вращается когда активно)
-            rotate(if (active) angle else 0f, pivot = c) {
+            // тонкое мягкое кольцо (медленно вращается)
+            rotate(ringRot, pivot = c) {
                 drawCircle(
-                    brush = Brush.sweepGradient(NEON, center = c),
-                    radius = ringR, center = c,
-                    style = Stroke(width = 5.dp.toPx())
+                    brush = Brush.sweepGradient(RING, center = c),
+                    radius = outer * 0.955f, center = c,
+                    style = Stroke(width = 2.5.dp.toPx())
                 )
             }
-            // чёрный диск
-            drawCircle(Color(0xFF050506), radius = ringR - 5.dp.toPx(), center = c)
+
+            // чёрный диск и «жидкие» волны внутри
+            val disc = Path().apply {
+                addOval(Rect(c.x - innerR, c.y - innerR, c.x + innerR, c.y + innerR))
+            }
+            clipPath(disc) {
+                drawRect(Color(0xFF050608))
+                drawLiquidWave(c, innerR, baseFrac = 0.10f, ampFrac = 0.24f * amp, phase = p1, color = WAVE1.copy(alpha = 0.55f))
+                drawLiquidWave(c, innerR, baseFrac = 0.24f, ampFrac = 0.20f * amp, phase = p2, color = WAVE2.copy(alpha = 0.45f))
+                drawLiquidWave(c, innerR, baseFrac = 0.40f, ampFrac = 0.16f * amp, phase = p3, color = WAVE3.copy(alpha = 0.38f))
+            }
         }
         Icon(
             Icons.Filled.PowerSettingsNew,
             contentDescription = if (running) "отключить" else "подключить",
-            tint = if (active) Color(0xFF25E6C8) else TXT.copy(alpha = 0.65f),
-            modifier = Modifier.size(46.dp)
+            tint = if (active) ACCENT else TXT.copy(alpha = 0.55f),
+            modifier = Modifier.size(44.dp)
         )
     }
+}
+
+// Рисует заполненную снизу синусоиду внутри круга радиуса r с центром c.
+// baseFrac — насколько ниже центра «уровень» волны, ampFrac — амплитуда (доли r).
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawLiquidWave(
+    c: androidx.compose.ui.geometry.Offset,
+    r: Float,
+    baseFrac: Float,
+    ampFrac: Float,
+    phase: Float,
+    color: Color
+) {
+    val left = c.x - r
+    val right = c.x + r
+    val bottom = c.y + r
+    val baseY = c.y + r * baseFrac
+    val amp = r * ampFrac
+    val path = Path()
+    path.moveTo(left, bottom)
+    var x = left
+    val step = (2f * r) / 28f
+    while (x <= right) {
+        val k = (x - left) / (2f * r) // 0..1 по ширине
+        val y = baseY + amp * kotlin.math.sin(k * TWO_PI * 1.6f + phase)
+        path.lineTo(x, y)
+        x += step
+    }
+    path.lineTo(right, bottom)
+    path.close()
+    drawPath(path, color)
 }
 
 @Composable
@@ -307,18 +360,18 @@ private fun ServerRow(name: String, selected: Boolean, onClick: () -> Unit) {
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
             .background(CARD)
-            .border(1.dp, if (selected) Color(0xFF25E6C8) else Color(0xFF1E1E26), RoundedCornerShape(14.dp))
+            .border(1.dp, if (selected) ACCENT else Color(0xFF1E1E26), RoundedCornerShape(14.dp))
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Filled.Public, contentDescription = null, tint = Color(0xFF2E9BFF), modifier = Modifier.size(20.dp))
+            Icon(Icons.Filled.Public, contentDescription = null, tint = WAVE2, modifier = Modifier.size(20.dp))
             Spacer(Modifier.size(12.dp))
             Text(name, color = TXT, fontSize = 15.sp, fontWeight = FontWeight.Medium)
         }
-        if (selected) Icon(Icons.Filled.CheckCircle, contentDescription = "выбран", tint = Color(0xFF25E6C8), modifier = Modifier.size(20.dp))
+        if (selected) Icon(Icons.Filled.CheckCircle, contentDescription = "выбран", tint = ACCENT, modifier = Modifier.size(20.dp))
     }
 }
 
