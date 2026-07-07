@@ -23,12 +23,12 @@ const val UPDATE_DIALOG_ACTION_POSTPONED = "postponed"
 const val UPDATE_DIALOG_ACTION_UPDATE = "update"
 
 private const val UPDATE_LOG_TAG = "qWDTT"
-private const val GITHUB_RELEASES_URL = "https://api.github.com/repos/folada2007/proxy-turn-vk-android/releases?per_page=30"
-private const val GITHUB_LATEST_RELEASE_URL = "https://api.github.com/repos/folada2007/proxy-turn-vk-android/releases/latest"
-private const val GITHUB_LATEST_RELEASE_WEB_URL = "https://github.com/folada2007/proxy-turn-vk-android/releases/latest"
-private const val GITHUB_RELEASE_TAG_URL_PREFIX = "https://github.com/folada2007/proxy-turn-vk-android/releases/tag/"
-private const val GITHUB_TAGS_URL = "https://api.github.com/repos/folada2007/proxy-turn-vk-android/tags?per_page=100"
-private const val GITHUB_TAG_TREE_URL_PREFIX = "https://github.com/folada2007/proxy-turn-vk-android/tree/"
+private const val GITHUB_RELEASES_URL = "https://api.github.com/repos/privateer-agent-dev/privateer-mobile/releases?per_page=30"
+private const val GITHUB_LATEST_RELEASE_URL = "https://api.github.com/repos/privateer-agent-dev/privateer-mobile/releases/latest"
+private const val GITHUB_LATEST_RELEASE_WEB_URL = "https://github.com/privateer-agent-dev/privateer-mobile/releases/latest"
+private const val GITHUB_RELEASE_TAG_URL_PREFIX = "https://github.com/privateer-agent-dev/privateer-mobile/releases/tag/"
+private const val GITHUB_TAGS_URL = "https://api.github.com/repos/privateer-agent-dev/privateer-mobile/tags?per_page=100"
+private const val GITHUB_TAG_TREE_URL_PREFIX = "https://github.com/privateer-agent-dev/privateer-mobile/tree/"
 private const val GITHUB_API_RATE_LIMIT_FALLBACK_MS = 30L * 60L * 1000L
 private val VERSION_NUMBER_REGEX = Regex("\\d+(?:\\.\\d+)*")
 

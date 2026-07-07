@@ -319,7 +319,7 @@ fun MainScreen(
     }
 
     LaunchedEffect(updateCheckIntervalHours) {
-        // Privateer: апдейт-чек смотрит на НАШИ GitHub Releases (folada2007), см. AppUpdate.kt
+        // Privateer: апдейт-чек смотрит на НАШИ GitHub Releases (privateer-agent-dev), см. AppUpdate.kt
         if (updateCheckIntervalHours == UPDATE_CHECK_NEVER) return@LaunchedEffect
 
         val intervalMillis = updateIntervalHoursToMillis(updateCheckIntervalHours)
