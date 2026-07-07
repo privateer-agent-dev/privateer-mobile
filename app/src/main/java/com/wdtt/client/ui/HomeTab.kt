@@ -5,7 +5,6 @@ import android.content.Context
 import android.widget.Toast
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
@@ -34,8 +33,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.PowerSettingsNew
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -52,12 +53,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -67,6 +66,8 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.wdtt.client.ConnectionProfile
 import com.wdtt.client.MainActivity
+import com.wdtt.client.PingHelper
+import com.wdtt.client.ProfileSubscription
 import com.wdtt.client.ProfilesStore
 import com.wdtt.client.SettingsStore
 import com.wdtt.client.TunnelManager
@@ -74,21 +75,15 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
-// Privateer: единственный экран. Тёмный минимализм — чёрный орб с неон-кольцом,
-// имя PRIVATEER, список серверов, добавление подписки. Диагностика — лонг-пресс по имени.
-private const val TWO_PI = 6.2831855f
-private val BG = Color(0xFF070709)
+private val BG = Color(0xFF060608)
 private val CARD = Color(0xFF101014)
 private val TXT = Color(0xFFEDEDF2)
 private val TXT_DIM = Color(0xFF8A8A96)
-private val ACCENT = Color(0xFF57C9B5)          // приглушённый циан — статус/акцент
-// Приглушённая люксовая палитра для «жидких» волн орба (Siri-стиль)
-private val WAVE1 = Color(0xFF2F6D8C)           // muted teal-blue
-private val WAVE2 = Color(0xFF3B4E8A)           // muted indigo
-private val WAVE3 = Color(0xFF4A3F73)           // muted violet
-private val RING = listOf(                        // мягкое кольцо, низкая яркость
-    Color(0xFF33566E), Color(0xFF3A4E7A), Color(0xFF3E4E6E), Color(0xFF33566E)
-)
+private val ACCENT = Color(0xFF32D6C8)
+// свечение орба (морской бирюзово-синий градиент, как в референсе)
+private val GLOW_TEAL = Color(0xFF19D6C6)
+private val GLOW_BLUE = Color(0xFF1E86C4)
+private val GLOW_DEEP = Color(0xFF0B1E36)
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -100,10 +95,12 @@ fun PrivateerHome(settingsStore: SettingsStore) {
     val running by TunnelManager.running.collectAsStateWithLifecycle()
     val stats by TunnelManager.stats.collectAsStateWithLifecycle()
     val profiles by profilesStore.profiles.collectAsStateWithLifecycle(initialValue = emptyList<ConnectionProfile>())
+    val subs by profilesStore.subscriptions.collectAsStateWithLifecycle(initialValue = emptyList<ProfileSubscription>())
     val currentProfileId by settingsStore.currentProfileId.collectAsStateWithLifecycle(initialValue = "")
 
     var showAddDialog by remember { mutableStateOf(false) }
     var showDiag by remember { mutableStateOf(false) }
+    var expanded by remember { mutableStateOf(true) }
     var subInput by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var connecting by remember { mutableStateOf(false) }
@@ -113,7 +110,6 @@ fun PrivateerHome(settingsStore: SettingsStore) {
         if (connecting) { delay(25000); if (!TunnelManager.running.value) connecting = false }
     }
 
-    // импорт по deep-link (privateer:// / qwdtt://)
     val pendingImport = MainActivity.pendingImportText.value
     LaunchedEffect(pendingImport) {
         val input = pendingImport ?: return@LaunchedEffect
@@ -126,14 +122,30 @@ fun PrivateerHome(settingsStore: SettingsStore) {
         ).show()
     }
 
+    fun ping(p: ConnectionProfile) {
+        if (PingHelper.pingingState[p.id] == true) return
+        PingHelper.pingingState[p.id] = true
+        scope.launch {
+            val r = PingHelper.measurePing(context, p)
+            PingHelper.pingResults[p.id] = r
+            PingHelper.pingingState[p.id] = false
+        }
+    }
+
+    // авто-пинг при раскрытии списка (один раз для непроверенных)
+    LaunchedEffect(expanded, profiles.size) {
+        if (expanded) profiles.forEach { if (PingHelper.pingResults[it.id] == null) ping(it) }
+    }
+
     val hasProfile = profiles.isNotEmpty()
+    val subName = subs.firstOrNull()?.name?.takeIf { it.isNotBlank() } ?: "Privateer"
     val statusText = when {
         running -> "Защищено"
         connecting -> "Подключение"
         else -> "Отключено"
     }
     val statusColor by animateColorAsState(
-        targetValue = if (running) ACCENT else if (connecting) WAVE2 else TXT_DIM,
+        targetValue = if (running) ACCENT else if (connecting) GLOW_BLUE else TXT_DIM,
         animationSpec = tween(400), label = "status"
     )
     val trafficMb = remember(stats) { parseTrafficMb(stats) }
@@ -153,27 +165,22 @@ fun PrivateerHome(settingsStore: SettingsStore) {
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp, vertical = 28.dp),
+                .padding(horizontal = 24.dp, vertical = 26.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Spacer(Modifier.height(12.dp))
-            // имя — лонг-пресс открывает диагностику
+            Spacer(Modifier.height(10.dp))
             Text(
                 "P R I V A T E E R",
-                color = TXT,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Light,
-                letterSpacing = 6.sp,
-                modifier = Modifier.combinedClickable(
-                    onClick = {},
-                    onLongClick = { showDiag = true }
-                )
+                color = TXT, fontSize = 16.sp, fontWeight = FontWeight.Light, letterSpacing = 6.sp,
+                modifier = Modifier.combinedClickable(onClick = {}, onLongClick = { showDiag = true })
             )
-            Spacer(Modifier.height(40.dp))
+            Spacer(Modifier.height(30.dp))
 
             ConnectOrb(
                 running = running,
                 connecting = connecting,
+                statusText = statusText,
+                statusColor = statusColor,
                 onClick = {
                     if (running) { MainActivity.currentActivity?.disconnectTunnel(); connecting = false }
                     else if (!hasProfile) { subInput = clipboardTextOrEmpty(context); showAddDialog = true }
@@ -181,38 +188,54 @@ fun PrivateerHome(settingsStore: SettingsStore) {
                 }
             )
 
-            Spacer(Modifier.height(28.dp))
-            Text(statusText, color = statusColor, fontSize = 17.sp, fontWeight = FontWeight.Medium, letterSpacing = 1.sp)
             if (running && trafficMb != null) {
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(14.dp))
                 Text("↑↓  $trafficMb МБ", color = TXT_DIM, fontSize = 13.sp)
             }
 
-            Spacer(Modifier.height(40.dp))
+            Spacer(Modifier.height(34.dp))
 
+            // ── Выпадающий список серверов подписки (как в Happ) ──
             if (hasProfile) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("СЕРВЕРЫ", color = TXT_DIM, fontSize = 12.sp, letterSpacing = 2.sp)
-                    Text("${profiles.size}", color = TXT_DIM, fontSize = 12.sp)
-                }
-                Spacer(Modifier.height(12.dp))
-                profiles.forEach { p ->
-                    ServerRow(
-                        name = p.name.ifBlank { "Сервер" },
-                        selected = p.id == currentProfileId,
-                        onClick = { connectSelected(p.id) }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable { expanded = !expanded }
+                        .padding(vertical = 10.dp, horizontal = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(subName, color = TXT, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                        Spacer(Modifier.size(8.dp))
+                        Text("${profiles.size}", color = TXT_DIM, fontSize = 13.sp)
+                    }
+                    Icon(
+                        if (expanded) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                        contentDescription = null, tint = TXT_DIM
                     )
-                    Spacer(Modifier.height(8.dp))
                 }
-                Spacer(Modifier.height(8.dp))
+                if (expanded) {
+                    Spacer(Modifier.height(6.dp))
+                    profiles.forEach { p ->
+                        ServerRow(
+                            name = p.name.ifBlank { "Сервер" },
+                            selected = p.id == currentProfileId,
+                            pinging = PingHelper.pingingState[p.id] == true,
+                            pingMs = PingHelper.pingResults[p.id],
+                            onPing = { ping(p) },
+                            onClick = { connectSelected(p.id) }
+                        )
+                        Spacer(Modifier.height(8.dp))
+                    }
+                }
+                Spacer(Modifier.height(10.dp))
             }
 
             Text(
                 text = if (hasProfile) "Добавить / обновить подписку" else "Добавить подписку",
-                color = TXT,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium,
-                textAlign = TextAlign.Center,
+                color = TXT, fontSize = 14.sp, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center,
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(14.dp))
@@ -234,13 +257,11 @@ fun PrivateerHome(settingsStore: SettingsStore) {
                     Text("Вставьте ссылку из бота.", color = TXT_DIM, fontSize = 14.sp)
                     Spacer(Modifier.height(12.dp))
                     OutlinedTextField(
-                        value = subInput,
-                        onValueChange = { subInput = it },
-                        singleLine = false,
+                        value = subInput, onValueChange = { subInput = it }, singleLine = false,
                         modifier = Modifier.fillMaxWidth(),
                         placeholder = { Text("https://…  или  privateer://…", color = TXT_DIM) }
                     )
-                    if (busy) { Spacer(Modifier.height(12.dp)); CircularProgressIndicator(color = Color(0xFF2E9BFF)) }
+                    if (busy) { Spacer(Modifier.height(12.dp)); CircularProgressIndicator(color = GLOW_BLUE) }
                 }
             },
             confirmButton = {
@@ -257,7 +278,7 @@ fun PrivateerHome(settingsStore: SettingsStore) {
                             } else Toast.makeText(context, res.exceptionOrNull()?.message ?: "Не удалось", Toast.LENGTH_LONG).show()
                         }
                     }
-                ) { Text("Добавить", color = Color(0xFF2E9BFF)) }
+                ) { Text("Добавить", color = GLOW_BLUE) }
             },
             dismissButton = { TextButton(onClick = { if (!busy) showAddDialog = false }) { Text("Отмена", color = TXT_DIM) } }
         )
@@ -267,95 +288,86 @@ fun PrivateerHome(settingsStore: SettingsStore) {
 }
 
 @Composable
-private fun ConnectOrb(running: Boolean, connecting: Boolean, onClick: () -> Unit) {
+private fun ConnectOrb(
+    running: Boolean,
+    connecting: Boolean,
+    statusText: String,
+    statusColor: Color,
+    onClick: () -> Unit
+) {
     val active = running || connecting
     val t = rememberInfiniteTransition(label = "orb")
-    // фазы волн (разные периоды → «живое» перетекание, как у Siri)
-    val p1 by t.animateFloat(0f, TWO_PI, infiniteRepeatable(tween(3600, easing = LinearEasing)), label = "p1")
-    val p2 by t.animateFloat(0f, TWO_PI, infiniteRepeatable(tween(5200, easing = LinearEasing)), label = "p2")
-    val p3 by t.animateFloat(0f, TWO_PI, infiniteRepeatable(tween(6800, easing = LinearEasing)), label = "p3")
-    val ringRot by t.animateFloat(0f, 360f, infiniteRepeatable(tween(14000, easing = LinearEasing)), label = "ring")
-    // амплитуда волн плавно поднимается при подключении и спадает в покое
-    val amp by animateFloatAsState(if (active) 1f else 0.18f, tween(900), label = "amp")
+    val shimmer by t.animateFloat(0f, 360f, infiniteRepeatable(tween(9000, easing = LinearEasing)), label = "shimmer")
+    val pulse by t.animateFloat(0f, 360f, infiniteRepeatable(tween(4200, easing = LinearEasing)), label = "pulse")
+    val dot by t.animateFloat(0f, 360f, infiniteRepeatable(tween(6000, easing = LinearEasing)), label = "dot")
+    val intensity by animateFloatAsState(if (active) 1f else 0.5f, tween(900), label = "intensity")
 
     Box(
         contentAlignment = Alignment.Center,
-        modifier = Modifier.size(240.dp).clip(CircleShape).clickable(onClick = onClick)
+        modifier = Modifier.size(260.dp).clip(CircleShape).clickable(onClick = onClick)
     ) {
         Canvas(Modifier.fillMaxSize()) {
             val c = center
             val outer = size.minDimension / 2f
-            val innerR = outer * 0.86f
-
-            // едва заметное свечение
+            // смещаем центр свечения по кругу → «перелив» света
+            val rad = Math.toRadians(pulse.toDouble())
+            val gc = Offset(
+                c.x + (outer * 0.12f) * kotlin.math.cos(rad).toFloat(),
+                c.y + (outer * 0.12f) * kotlin.math.sin(rad).toFloat()
+            )
+            // основное свечение-сфера
             drawCircle(
                 brush = Brush.radialGradient(
-                    listOf(WAVE1.copy(alpha = if (active) 0.22f else 0.06f), Color.Transparent),
-                    center = c, radius = outer
+                    listOf(
+                        GLOW_TEAL.copy(alpha = 0.95f * intensity),
+                        GLOW_BLUE.copy(alpha = 0.70f * intensity),
+                        GLOW_DEEP.copy(alpha = 0.92f),
+                        Color.Transparent
+                    ),
+                    center = gc, radius = outer
                 ),
                 radius = outer, center = c
             )
-            // тонкое мягкое кольцо (медленно вращается)
-            rotate(ringRot, pivot = c) {
+            // мерцающий перелив (медленно вращается)
+            rotate(shimmer, pivot = c) {
                 drawCircle(
-                    brush = Brush.sweepGradient(RING, center = c),
-                    radius = outer * 0.955f, center = c,
-                    style = Stroke(width = 2.5.dp.toPx())
+                    brush = Brush.sweepGradient(
+                        listOf(GLOW_TEAL, GLOW_BLUE, Color(0xFF3A6FB0), GLOW_TEAL), center = c
+                    ),
+                    radius = outer * 0.9f, center = c, alpha = 0.14f * intensity
                 )
             }
-
-            // чёрный диск и «жидкие» волны внутри
-            val disc = Path().apply {
-                addOval(Rect(c.x - innerR, c.y - innerR, c.x + innerR, c.y + innerR))
+            // тонкое кольцо + бегущая точка (как в референсе)
+            drawCircle(Color.White.copy(alpha = 0.22f), radius = outer * 0.97f, center = c, style = Stroke(width = 1.5.dp.toPx()))
+            if (active) {
+                val da = Math.toRadians(dot.toDouble())
+                val dp = Offset(c.x + (outer * 0.97f) * kotlin.math.cos(da).toFloat(), c.y + (outer * 0.97f) * kotlin.math.sin(da).toFloat())
+                drawCircle(Color.White, radius = 5.dp.toPx(), center = dp)
             }
-            clipPath(disc) {
-                drawRect(Color(0xFF050608))
-                drawLiquidWave(c, innerR, baseFrac = 0.10f, ampFrac = 0.24f * amp, phase = p1, color = WAVE1.copy(alpha = 0.55f))
-                drawLiquidWave(c, innerR, baseFrac = 0.24f, ampFrac = 0.20f * amp, phase = p2, color = WAVE2.copy(alpha = 0.45f))
-                drawLiquidWave(c, innerR, baseFrac = 0.40f, ampFrac = 0.16f * amp, phase = p3, color = WAVE3.copy(alpha = 0.38f))
-            }
+            // внутренняя «кнопка»
+            drawCircle(Color.White.copy(alpha = 0.05f), radius = outer * 0.44f, center = c)
+            drawCircle(Color.White.copy(alpha = 0.14f), radius = outer * 0.44f, center = c, style = Stroke(width = 1.dp.toPx()))
         }
-        Icon(
-            Icons.Filled.PowerSettingsNew,
-            contentDescription = if (running) "отключить" else "подключить",
-            tint = if (active) ACCENT else TXT.copy(alpha = 0.55f),
-            modifier = Modifier.size(44.dp)
-        )
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                if (running) "ОТКЛЮЧИТЬ" else if (connecting) "…" else "ПОДКЛЮЧИТЬ",
+                color = TXT, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.sp
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(statusText, color = statusColor, fontSize = 12.sp)
+        }
     }
-}
-
-// Рисует заполненную снизу синусоиду внутри круга радиуса r с центром c.
-// baseFrac — насколько ниже центра «уровень» волны, ampFrac — амплитуда (доли r).
-private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawLiquidWave(
-    c: androidx.compose.ui.geometry.Offset,
-    r: Float,
-    baseFrac: Float,
-    ampFrac: Float,
-    phase: Float,
-    color: Color
-) {
-    val left = c.x - r
-    val right = c.x + r
-    val bottom = c.y + r
-    val baseY = c.y + r * baseFrac
-    val amp = r * ampFrac
-    val path = Path()
-    path.moveTo(left, bottom)
-    var x = left
-    val step = (2f * r) / 28f
-    while (x <= right) {
-        val k = (x - left) / (2f * r) // 0..1 по ширине
-        val y = baseY + amp * kotlin.math.sin(k * TWO_PI * 1.6f + phase)
-        path.lineTo(x, y)
-        x += step
-    }
-    path.lineTo(right, bottom)
-    path.close()
-    drawPath(path, color)
 }
 
 @Composable
-private fun ServerRow(name: String, selected: Boolean, onClick: () -> Unit) {
+private fun ServerRow(
+    name: String,
+    selected: Boolean,
+    pinging: Boolean,
+    pingMs: Long?,
+    onPing: () -> Unit,
+    onClick: () -> Unit
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -368,11 +380,42 @@ private fun ServerRow(name: String, selected: Boolean, onClick: () -> Unit) {
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Filled.Public, contentDescription = null, tint = WAVE2, modifier = Modifier.size(20.dp))
+            Icon(Icons.Filled.Public, contentDescription = null, tint = GLOW_BLUE, modifier = Modifier.size(20.dp))
             Spacer(Modifier.size(12.dp))
             Text(name, color = TXT, fontSize = 15.sp, fontWeight = FontWeight.Medium)
         }
-        if (selected) Icon(Icons.Filled.CheckCircle, contentDescription = "выбран", tint = ACCENT, modifier = Modifier.size(20.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            PingBadge(pinging = pinging, pingMs = pingMs, onPing = onPing)
+            if (selected) {
+                Spacer(Modifier.size(10.dp))
+                Icon(Icons.Filled.CheckCircle, contentDescription = "выбран", tint = ACCENT, modifier = Modifier.size(20.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun PingBadge(pinging: Boolean, pingMs: Long?, onPing: () -> Unit) {
+    when {
+        pinging -> CircularProgressIndicator(color = GLOW_BLUE, strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
+        pingMs == null -> Icon(
+            Icons.Filled.Refresh, contentDescription = "проверить пинг", tint = TXT_DIM,
+            modifier = Modifier.size(18.dp).clip(CircleShape).clickable(onClick = onPing)
+        )
+        pingMs < 0 -> Text(
+            "нет", color = Color(0xFFFF6B6B), fontSize = 13.sp,
+            modifier = Modifier.clip(RoundedCornerShape(6.dp)).clickable(onClick = onPing)
+        )
+        else -> Text(
+            "$pingMs ms",
+            color = when {
+                pingMs < 150 -> Color(0xFF4FD1A5)
+                pingMs < 300 -> Color(0xFFE3C15A)
+                else -> Color(0xFFFF6B6B)
+            },
+            fontSize = 13.sp, fontWeight = FontWeight.Medium,
+            modifier = Modifier.clip(RoundedCornerShape(6.dp)).clickable(onClick = onPing)
+        )
     }
 }
 
@@ -395,18 +438,15 @@ private fun DiagnosticsDialog(stats: String, onDismiss: () -> Unit) {
                 logs.takeLast(60).forEach { e ->
                     Text(
                         (if (e.count > 1) "(${e.count}) " else "") + e.message,
-                        color = if (e.isError) Color(0xFFFF6B6B) else TXT_DIM,
-                        fontSize = 11.sp
+                        color = if (e.isError) Color(0xFFFF6B6B) else TXT_DIM, fontSize = 11.sp
                     )
                 }
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Закрыть", color = Color(0xFF2E9BFF)) } }
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Закрыть", color = GLOW_BLUE) } }
     )
 }
 
-// Единая точка импорта: http(s) → addSubscription (запоминает URL для автообновления),
-// иначе (qwdtt://config / JSON / base64) → addFromText. Затем применяет первый сервер.
 private suspend fun importSubscription(store: ProfilesStore, context: Context, rawInput: String): Result<Int> {
     val input = rawInput.trim()
     if (input.isEmpty()) return Result.failure(IllegalArgumentException("Пустая ссылка"))
