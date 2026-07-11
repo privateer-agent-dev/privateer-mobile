@@ -41,10 +41,19 @@ object SubscriptionImport {
             }
             val body = conn.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
             conn.disconnect()
+            // Явный отказ от сервера (Privateer): active:false → показать причину, а не «неверный формат».
+            try {
+                val j = org.json.JSONObject(body.trim())
+                if (j.has("active") && !j.optBoolean("active", true)) {
+                    val why = j.optString("description", "нет доступа")
+                    return@withContext Result.failure(IllegalArgumentException("Доступ закрыт: $why"))
+                }
+            } catch (_: Exception) {
+            }
             val parsed = parsePayload(body)
                 ?: return@withContext Result.failure(IllegalArgumentException("Неверный формат подписки"))
             if (parsed.profiles.isEmpty()) {
-                return@withContext Result.failure(IllegalArgumentException("В подписке нет профилей"))
+                return@withContext Result.failure(IllegalArgumentException("В подписке нет серверов (нет доступа или пустой пул)"))
             }
             Result.success(parsed)
         } catch (e: Exception) {

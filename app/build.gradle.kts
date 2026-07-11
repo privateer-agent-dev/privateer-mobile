@@ -14,8 +14,8 @@ android {
         applicationId = "zip.privateer.mobile"
         minSdk = 28
         targetSdk = 35
-        versionCode = 22
-        versionName = "1.2.5-privateer.1"
+        versionCode = 23
+        versionName = "1.2.5-privateer.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
