@@ -33,12 +33,14 @@ object SubscriptionAuth {
                 url += if (url.contains("?")) "&format=json" else "?format=json"
             }
 
+            val deviceId = SettingsStore(context).getOrCreateDeviceId()
             val conn = (URL(url).openConnection() as HttpURLConnection).apply {
                 connectTimeout = 6000
                 readTimeout = 6000
                 requestMethod = "GET"
                 setRequestProperty("Accept", "application/json")
                 setRequestProperty("User-Agent", "Privateer-Mobile/1.0")
+                setRequestProperty("X-Device-Id", deviceId)
             }
             val code = conn.responseCode
             if (code !in 200..299) {

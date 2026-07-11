@@ -13,6 +13,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
@@ -107,6 +108,9 @@ class SettingsStore(context: Context) {
         // Privateer: режим разработчика. OFF (по умолчанию) = простой экран для обывателя,
         // ON = полный UI qWDTT (профили, деплой, логи, исключения).
         private val DEVELOPER_MODE = booleanPreferencesKey("developer_mode")
+
+        // Privateer: стабильный id устройства для мягкого лимита устройств на подписку.
+        private val DEVICE_ID = stringPreferencesKey("privateer_device_id")
     }
 
     private val dataStore = appContext.dataStore
@@ -187,6 +191,15 @@ class SettingsStore(context: Context) {
     }
 
     val developerMode: Flow<Boolean> = dataStore.data.map { it[DEVELOPER_MODE] ?: false }
+
+    // Стабильный device-id (создаётся один раз, шлётся в X-Device-Id для лимита устройств).
+    suspend fun getOrCreateDeviceId(): String {
+        val cur = dataStore.data.map { it[DEVICE_ID] ?: "" }.first()
+        if (cur.isNotEmpty()) return cur
+        val id = java.util.UUID.randomUUID().toString()
+        dataStore.edit { it[DEVICE_ID] = id }
+        return id
+    }
 
     suspend fun saveDeveloperMode(enabled: Boolean) {
         dataStore.edit { preferences ->

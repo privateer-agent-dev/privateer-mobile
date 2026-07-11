@@ -20,7 +20,7 @@ data class ParsedRemoteSubscription(
 
 object SubscriptionImport {
 
-    suspend fun fetch(url: String): Result<ParsedRemoteSubscription> = withContext(Dispatchers.IO) {
+    suspend fun fetch(url: String, deviceId: String = ""): Result<ParsedRemoteSubscription> = withContext(Dispatchers.IO) {
         try {
             val trimmed = url.trim()
             if (!trimmed.startsWith("http://", ignoreCase = true) && !trimmed.startsWith("https://", ignoreCase = true)) {
@@ -32,6 +32,7 @@ object SubscriptionImport {
                 requestMethod = "GET"
                 setRequestProperty("Accept", "application/json, text/plain, */*")
                 setRequestProperty("User-Agent", "qWDTT-Subscription/1.0")
+                if (deviceId.isNotEmpty()) setRequestProperty("X-Device-Id", deviceId) // мягкий лимит устройств Privateer
             }
             val code = conn.responseCode
             if (code !in 200..299) {

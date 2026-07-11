@@ -208,7 +208,7 @@ class ProfilesStore(context: Context) {
         if (trimmedUrl.isEmpty()) return@withContext Result.failure(IllegalArgumentException("Укажите адрес подписки"))
 
         try {
-            val parsed = SubscriptionImport.fetch(trimmedUrl).getOrThrow()
+            val parsed = SubscriptionImport.fetch(trimmedUrl, settings.getOrCreateDeviceId()).getOrThrow()
             val groupName = parsed.subscriptionName?.trim()?.takeIf { it.isNotEmpty() }
                 ?: return@withContext Result.failure(IllegalArgumentException("В JSON нужно поле subscriptionName"))
             importProfilesToGroup(groupName, parsed.profiles, fromSubscription = true)
@@ -238,7 +238,7 @@ class ProfilesStore(context: Context) {
         if (sub.url.isBlank()) return@withContext Result.failure(IllegalStateException("Адрес подписки пуст"))
 
         try {
-            val parsed = SubscriptionImport.fetch(sub.url).getOrThrow()
+            val parsed = SubscriptionImport.fetch(sub.url, settings.getOrCreateDeviceId()).getOrThrow()
             val groupName = parsed.subscriptionName?.trim()?.takeIf { it.isNotEmpty() } ?: sub.name
             importProfilesToGroup(groupName, parsed.profiles, fromSubscription = true)
             val groupId = findGroupByName(groupName)?.id ?: sub.groupId
