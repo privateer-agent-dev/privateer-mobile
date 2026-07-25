@@ -25,6 +25,12 @@ const (
 	socketBufSize      = 625 * 1024
 	keepaliveByte      = 0xFF // DTLS-level keepalive marker
 	keepaliveInterval  = 15 * time.Second
+	// deadThreshold — если из DTLS дольше этого времени не пришло НИЧЕГО (ни данных,
+	// ни keepalive-pong от сервера, который прилетает каждые keepaliveInterval),
+	// туннель считается мёртвым (TURN-маппинг протух / обратный путь умер). Рвём
+	// сессию — воркер в group.go переподнимет её. 55с ≈ 3 пропущенных pong'а, поэтому
+	// на живом (пусть и простаивающем) туннеле ложных срабатываний нет.
+	deadThreshold = 55 * time.Second
 )
 
 // Handshake semaphore: limit to 3 concurrent DTLS handshakes
@@ -345,14 +351,40 @@ func RunSession(
 	d.Register(slot)
 	defer d.Unregister(slot)
 
+	// lastRecv — время последнего успешного чтения из DTLS (данные ИЛИ pong).
+	// Обновляется в Reader; по нему liveness-watcher детектит мёртвый туннель.
+	var lastRecv atomic.Int64
+	lastRecv.Store(time.Now().UnixNano())
+
 	// Proxy DTLS ↔ Dispatcher
 	var proxyWg sync.WaitGroup
-	proxyWg.Add(3) // +1 for keepalive goroutine
+	proxyWg.Add(4) // keepalive + writer + reader + liveness watcher
 
 	stopDTLS := context.AfterFunc(sessCtx, func() {
 		_ = dtlsConn.SetDeadline(time.Now())
 	})
 	defer stopDTLS()
+
+	// Liveness watcher: сервер шлёт pong каждые keepaliveInterval, поэтому на живом
+	// туннеле lastRecv обновляется регулярно даже без пользовательского трафика.
+	// Молчание дольше deadThreshold = труба мертва → рвём сессию (group.go переподнимет).
+	go func() {
+		defer proxyWg.Done()
+		t := time.NewTicker(10 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-sessCtx.Done():
+				return
+			case <-t.C:
+				if time.Since(time.Unix(0, lastRecv.Load())) > deadThreshold {
+					log.Printf("[ВОРКЕР #%d] Туннель молчит >%s (нет данных и pong) — рвём для переподключения", sessionID, deadThreshold)
+					sessCancel()
+					return
+				}
+			}
+		}
+	}()
 
 	// DTLS Keepalive: prevents TURN allocation timeout and DTLS idle disconnect
 	go func() {
@@ -417,6 +449,9 @@ func RunSession(
 				log.Printf("[ВОРКЕР #%d] Ошибка Reader: %v", sessionID, readErr)
 				return
 			}
+
+			// Живой обратный трафик (данные ИЛИ pong) — обновляем метку для watcher'а.
+			lastRecv.Store(time.Now().UnixNano())
 
 			// Skip keepalive pong from server
 			if n == 1 && b[0] == keepaliveByte {
