@@ -192,8 +192,29 @@ class SettingsStore(context: Context) {
 
     val developerMode: Flow<Boolean> = dataStore.data.map { it[DEVELOPER_MODE] ?: false }
 
-    // Стабильный device-id (создаётся один раз, шлётся в X-Device-Id для лимита устройств).
+    // Стабильный device-id, шлётся в X-Device-Id для мягкого лимита устройств.
+    // Источник — Settings.Secure.ANDROID_ID: с Android 8 (API 26) он scoped per
+    // (device, user, app signing key) и, что здесь ключевое, ПЕРЕЖИВАЕТ удаление
+    // и переустановку приложения (в отличие от значения в DataStore, которое
+    // стирается вместе с данными приложения). Без этого каждая переустановка при
+    // тестировании/обновлении вручную сжигала отдельный слот в лимите устройств.
+    // DataStore остаётся кэшем/фолбэком на случай, если ANDROID_ID недоступен
+    // (известный баг некоторых эмуляторов) — тогда генерируем случайный UUID и
+    // ЗАПОМИНАЕМ его, чтобы хотя бы в рамках одной установки id был стабилен.
     suspend fun getOrCreateDeviceId(): String {
+        val androidId = try {
+            android.provider.Settings.Secure.getString(
+                appContext.contentResolver, android.provider.Settings.Secure.ANDROID_ID
+            )
+        } catch (_: Exception) {
+            null
+        }
+        // "9774d56d682e549c" — известное дефолтное значение на некоторых старых
+        // эмуляторах/прошивках; не уникально, использовать нельзя.
+        if (!androidId.isNullOrBlank() && androidId != "9774d56d682e549c") {
+            return "and-$androidId"
+        }
+
         val cur = dataStore.data.map { it[DEVICE_ID] ?: "" }.first()
         if (cur.isNotEmpty()) return cur
         val id = java.util.UUID.randomUUID().toString()
