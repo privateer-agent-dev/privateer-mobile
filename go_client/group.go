@@ -161,16 +161,26 @@ func WorkerGroup(
 				credsSnapshot.TurnURLs = cloneStringSlice(creds.TurnURLs)
 				credsMu.RUnlock()
 
+				// Канал конфига отдаём ЛЮБОМУ воркеру первой группы: право на
+				// запрос он возьмёт сам, когда соединение установится.
+				chForSession := cc
+				if chForSession == nil && shouldGetConfig && atomic.LoadInt32(&configSent) == 0 {
+					chForSession = configCh
+				}
+
 				configDelivered, sessErr := RunSession(ctx, tp, peer, d, localPort,
-					getConf, cc, wid, &credsSnapshot, deviceID, password, stats)
+					getConf, chForSession, wid, &credsSnapshot, deviceID, password, stats,
+					&configSent, &configRequestInFlight)
 
 				quotaRetry := false
-				if getConf {
-					if configDelivered {
-						atomic.StoreInt32(&configSent, 1)
-					} else {
-						atomic.StoreInt32(&configRequestInFlight, 0)
-					}
+				// configDelivered может прийти и от воркера, который взял право
+				// уже внутри сессии, поэтому смотрим на результат, а не на то,
+				// кому право выдали заранее.
+				if configDelivered {
+					atomic.StoreInt32(&configSent, 1)
+					atomic.StoreInt32(&configRequestInFlight, 0)
+				} else if getConf {
+					atomic.StoreInt32(&configRequestInFlight, 0)
 				}
 
 				if sessErr != nil {

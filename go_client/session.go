@@ -71,6 +71,12 @@ func RunSession(
 	creds *Credentials,
 	deviceID, password string,
 	stats *Stats,
+	// Флаги группы: конфиг запрашивает тот воркер, который РЕАЛЬНО установил
+	// соединение. Раньше право резервировалось до сессии, и если тому воркеру
+	// не везло с рукопожатием, конфиг не приходил вообще — при живых соседних
+	// сессиях. Туннель в этом случае не поднимался, хотя транспорт работал.
+	configSent *int32,
+	configInFlight *int32,
 ) (bool, error) {
 	configDelivered := false
 	var firstWrapUp uint32
@@ -314,7 +320,24 @@ func RunSession(
 	atomic.AddInt32(&stats.ActiveConnections, 1)
 	defer atomic.AddInt32(&stats.ActiveConnections, -1)
 
-	// Запрос конфига
+	// Запрос конфига — право берём здесь, когда соединение уже установлено.
+	claimedConfig := false
+	if !getConfig && configCh != nil && configSent != nil && configInFlight != nil &&
+		atomic.LoadInt32(configSent) == 0 {
+		if atomic.CompareAndSwapInt32(configInFlight, 0, 1) {
+			getConfig = true
+			claimedConfig = true
+			log.Printf("[ВОРКЕР #%d] Беру на себя запрос конфига (соединение установлено)", sessionID)
+		}
+	}
+	// Взяли право — обязаны отпустить, если конфиг так и не получили. Иначе
+	// право останется занятым навсегда и туннель не поднимется уже ни у кого.
+	defer func() {
+		if claimedConfig && !configDelivered && configInFlight != nil {
+			atomic.StoreInt32(configInFlight, 0)
+		}
+	}()
+
 	if getConfig && configCh != nil {
 		conf, confErr := RequestConfig(dtlsConn, localPort, deviceID, password)
 		if confErr != nil {
