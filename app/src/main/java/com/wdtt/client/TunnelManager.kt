@@ -669,10 +669,17 @@ object TunnelManager {
                             collectingConfig = false
                             val configStr = configBuilder.toString().trim()
                             config.value = configStr
-                            
+
+                            // Явные записи про этот шаг: раньше он был слепым
+                            // пятном. Между «сессии подняты» и «трафик идёт»
+                            // стоит именно применение конфига WireGuard, и по
+                            // логам нельзя было понять, дошло ли до него дело.
+                            updateLog("wg_config", "[WG] Конфиг получен (${configStr.length} симв.), поднимаю туннель…", 10, false)
+
                             scope.launch(Dispatchers.Main) {
                                 try {
                                     wgHelper?.startTunnel(configStr)
+                                    updateLog("wg_started", "[WG] Туннель поднят", 10, false)
                                 } catch (e: Exception) {
                                     updateLog("vpn_start_error", "Ошибка запуска VPN: ${e.readableMessage()}", 99, true)
                                 }

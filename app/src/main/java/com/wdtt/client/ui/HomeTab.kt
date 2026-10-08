@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -46,6 +47,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -537,6 +539,9 @@ private fun DiagnosticsDialog(stats: String, onDismiss: () -> Unit) {
     val logs by TunnelManager.logs.collectAsStateWithLifecycle()
     val running by TunnelManager.running.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val settingsStore = remember(context) { SettingsStore(context) }
+    val detailed by settingsStore.detailedLogs.collectAsStateWithLifecycle(initialValue = false)
 
     // Текст для отправки в поддержку. Без кнопки копирования логи приходилось
     // переписывать со скриншотов, и разбор любой проблемы вставал.
@@ -563,6 +568,21 @@ private fun DiagnosticsDialog(stats: String, onDismiss: () -> Unit) {
                 Spacer(Modifier.height(4.dp))
                 Text(stats, color = TXT_DIM, fontSize = 12.sp)
                 Spacer(Modifier.height(12.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(
+                        checked = detailed,
+                        onCheckedChange = { on ->
+                            scope.launch { settingsStore.saveDetailedLogs(on) }
+                        }
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    // Без этого вывод Go-ядра фильтруется, и в логах не видно
+                    // ни ошибок рукопожатия, ни причин, по которым не
+                    // поднимаются потоки. Переключатель жил в настройках,
+                    // которые из этой оболочки убрали.
+                    Text("Подробные логи (нужно для разбора проблем)", color = TXT_DIM, fontSize = 12.sp)
+                }
+                Spacer(Modifier.height(10.dp))
                 Text("ЛОГИ", color = TXT_DIM, fontSize = 11.sp, letterSpacing = 2.sp)
                 Spacer(Modifier.height(6.dp))
                 if (logs.isEmpty()) {
