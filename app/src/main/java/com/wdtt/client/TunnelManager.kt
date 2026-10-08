@@ -7,6 +7,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
@@ -78,6 +80,10 @@ object TunnelManager {
     // Поколение процесса: читатель логов умирающего процесса не должен сбрасывать
     // running у уже запущенного следующего.
     private var processGeneration = 0
+
+    // Перезапуски идут строго по одному: иначе смена сети и вотчдог могут
+    // запустить два Go-процесса разом, и второй не займёт UDP-порт.
+    private val restartMutex = Mutex()
     val logs = MutableStateFlow<List<LogEntry>>(emptyList())
     val unreadErrorCount = MutableStateFlow(0)
     val config = MutableStateFlow<String?>(null)
@@ -318,6 +324,16 @@ object TunnelManager {
                 // Set LD_LIBRARY_PATH
                 val env = pb.environment()
                 env["LD_LIBRARY_PATH"] = context.applicationInfo.nativeLibraryDir
+
+                // Страховка от двойного запуска: если предыдущий процесс ещё
+                // жив, он держит UDP-порт, и новый поднимется мёртвым.
+                process?.let { old ->
+                    if (old.isAlive) {
+                        updateLog("double_start", "Предыдущий процесс ещё жив — добиваю перед запуском", 50, false)
+                        process = null
+                        stopGoProcessGracefully(old)
+                    }
+                }
 
                 process = pb.start()
                 processStartedAtMs = System.currentTimeMillis()
@@ -811,14 +827,16 @@ object TunnelManager {
         val context = lastContext?.get() ?: return
         updateLog("network_restart", "[СЕТЬ] Перезапуск транспорта из-за смены сети...", 50, false)
         scope.launch {
-            withContext(Dispatchers.IO) {
-                ensureTransportStopped(params.port)
-            }
-            // Проверяем ИМЕНИЕ, а не running: ensureTransportStopped выше убил
-            // процесс, и running к этому моменту всегда false — из-за этого
-            // перезапуск при смене сети не происходил никогда.
-            if (desiredRunning.value) {
-                start(context, params, isSwitching = true)
+            restartMutex.withLock {
+                withContext(Dispatchers.IO) {
+                    ensureTransportStopped(params.port)
+                }
+                // Проверяем НАМЕРЕНИЕ, а не running: ensureTransportStopped выше
+                // убил процесс, и running к этому моменту всегда false — из-за
+                // этого перезапуск при смене сети не происходил никогда.
+                if (desiredRunning.value) {
+                    start(context, params, isSwitching = true)
+                }
             }
         }
     }
@@ -841,13 +859,18 @@ object TunnelManager {
     // Убивает процесс без изменения running
     private fun killProcess() {
         watchdogJob?.cancel()
-        readerJob?.cancel()
-        stopGoProcessGracefully()
-    }
-
-    private fun stopGoProcessGracefully() {
+        // Ссылку забираем ДО отмены читателя: его finally обнуляет process, и
+        // если он успевал сработать первым, убивать было уже нечего — старый
+        // Go-процесс оставался жить, держал UDP-порт и продолжал слать статистику.
+        // Новый при этом подняться не мог: отсюда «подключено, но трафика нет»
+        // и бесконечное переподключение при смене сети.
         val proc = process
         process = null
+        readerJob?.cancel()
+        stopGoProcessGracefully(proc)
+    }
+
+    private fun stopGoProcessGracefully(proc: Process?) {
         if (proc == null) return
         try {
             proc.outputStream.write("STOP\n".toByteArray(Charsets.UTF_8))
