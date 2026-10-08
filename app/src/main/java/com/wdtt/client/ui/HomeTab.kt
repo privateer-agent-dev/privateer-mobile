@@ -1,5 +1,6 @@
 package com.wdtt.client.ui
 
+import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
@@ -37,11 +38,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -68,6 +71,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.wdtt.client.BuildConfig
 import com.wdtt.client.ConnectionProfile
 import com.wdtt.client.MainActivity
 import com.wdtt.client.PingHelper
@@ -188,6 +192,21 @@ fun PrivateerHome(settingsStore: SettingsStore) {
     }
 
     Box(Modifier.fillMaxSize().background(BG)) {
+        // Кнопка диагностики. Раньше этот экран открывался долгим нажатием на
+        // заголовок — догадаться было невозможно, и при разборе проблем люди
+        // не могли прислать логи.
+        IconButton(
+            onClick = { showDiag = true },
+            modifier = Modifier.align(Alignment.TopEnd).padding(top = 18.dp, end = 10.dp)
+        ) {
+            Icon(
+                Icons.Filled.Info,
+                contentDescription = "Диагностика",
+                tint = TXT_DIM,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -515,6 +534,24 @@ private fun PingBadge(pinging: Boolean, pingMs: Long?, onPing: () -> Unit) {
 private fun DiagnosticsDialog(stats: String, onDismiss: () -> Unit) {
     val workers by TunnelManager.activeWorkers.collectAsStateWithLifecycle()
     val logs by TunnelManager.logs.collectAsStateWithLifecycle()
+    val running by TunnelManager.running.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+
+    // Текст для отправки в поддержку. Без кнопки копирования логи приходилось
+    // переписывать со скриншотов, и разбор любой проблемы вставал.
+    fun buildReport(): String = buildString {
+        appendLine("Privateer Mobile — диагностика")
+        appendLine("версия: ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
+        appendLine("Android: ${android.os.Build.VERSION.RELEASE}, ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}")
+        appendLine("туннель: ${if (running) "работает" else "остановлен"}, воркеров: $workers")
+        appendLine(stats)
+        appendLine()
+        appendLine("ЛОГИ:")
+        logs.takeLast(120).forEach { e ->
+            appendLine((if (e.count > 1) "(${e.count}) " else "") + e.message)
+        }
+    }
+
     AlertDialog(
         containerColor = CARD,
         onDismissRequest = onDismiss,
@@ -527,6 +564,9 @@ private fun DiagnosticsDialog(stats: String, onDismiss: () -> Unit) {
                 Spacer(Modifier.height(12.dp))
                 Text("ЛОГИ", color = TXT_DIM, fontSize = 11.sp, letterSpacing = 2.sp)
                 Spacer(Modifier.height(6.dp))
+                if (logs.isEmpty()) {
+                    Text("Пусто — подключитесь, и здесь появятся записи.", color = TXT_DIM, fontSize = 11.sp)
+                }
                 logs.takeLast(60).forEach { e ->
                     Text(
                         (if (e.count > 1) "(${e.count}) " else "") + e.message,
@@ -535,7 +575,14 @@ private fun DiagnosticsDialog(stats: String, onDismiss: () -> Unit) {
                 }
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Закрыть", color = P_MAGENTA) } }
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Закрыть", color = P_MAGENTA) } },
+        dismissButton = {
+            TextButton(onClick = {
+                val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                cm?.setPrimaryClip(ClipData.newPlainText("Privateer diagnostics", buildReport()))
+                Toast.makeText(context, "Скопировано — отправьте в поддержку", Toast.LENGTH_SHORT).show()
+            }) { Text("Скопировать", color = TXT_DIM) }
+        }
     )
 }
 
