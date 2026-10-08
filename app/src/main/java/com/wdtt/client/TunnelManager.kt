@@ -334,6 +334,7 @@ object TunnelManager {
                         stopGoProcessGracefully(old)
                     }
                 }
+                killOrphanedGoProcesses()
 
                 process = pb.start()
                 processStartedAtMs = System.currentTimeMillis()
@@ -900,6 +901,48 @@ object TunnelManager {
                 proc.waitFor(1500, TimeUnit.MILLISECONDS)
             } catch (_: Exception) {
             }
+        }
+    }
+
+    // Процессы, запущенные через ProcessBuilder, переживают смерть приложения:
+    // ни свайп из списка задач, ни переустановка их не убивают. А локальный порт
+    // Go-ядро открывает с SO_REUSEADDR, поэтому новый процесс займёт его БЕЗ
+    // ошибки — и пакеты WireGuard может забирать осиротевший старый. Снаружи это
+    // выглядит как «подключено, воркеры есть, но трафика нет».
+    // Проверка свободности порта тут не помогает: она сама ставит SO_REUSEADDR
+    // и всегда отвечает «свободно».
+    private fun killOrphanedGoProcesses() {
+        try {
+            val myUid = android.os.Process.myUid()
+            val procDir = java.io.File("/proc")
+            val dirs = procDir.listFiles { f: java.io.File -> f.isDirectory && f.name.all { it.isDigit() } }
+                ?: return
+            var killed = 0
+            for (dir in dirs) {
+                try {
+                    val pid = dir.name.toIntOrNull() ?: continue
+                    if (pid == android.os.Process.myPid()) continue
+                    val cmdline = java.io.File(dir, "cmdline").readText()
+                    if (!cmdline.contains("libclient.so")) continue
+                    // Замер пинга — тот же бинарь, но отдельный короткоживущий
+                    // процесс, который порт туннеля не занимает. Его не трогаем.
+                    if (cmdline.contains("-ping-only")) continue
+                    // Начиная с Android 9 в /proc видны только свои процессы,
+                    // но UID сверяем явно — убивать чужое мы не вправе.
+                    val uid = java.io.File(dir, "status").readLines()
+                        .firstOrNull { it.startsWith("Uid:") }
+                        ?.split(Regex("\\s+"))?.getOrNull(1)?.toIntOrNull()
+                    if (uid != myUid) continue
+                    android.os.Process.killProcess(pid)
+                    killed++
+                } catch (_: Exception) {
+                    // Процесс мог исчезнуть прямо во время обхода — это нормально.
+                }
+            }
+            if (killed > 0) {
+                updateLog("orphan_kill", "Добито осиротевших процессов: $killed", 50, false)
+            }
+        } catch (_: Exception) {
         }
     }
 
