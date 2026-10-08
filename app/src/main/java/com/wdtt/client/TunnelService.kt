@@ -50,6 +50,8 @@ class TunnelService : Service() {
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var lastNetworkChangeTime = 0L
     private var networkChangeJob: Job? = null
+    private var defaultNetworkCallback: ConnectivityManager.NetworkCallback? = null
+    private var currentDefaultNetwork: Network? = null
     private val activeNetworks = mutableSetOf<Network>()
     private var isTunnelPaused = false
 
@@ -212,37 +214,31 @@ class TunnelService : Service() {
                 super.onAvailable(network)
                 val wasEmpty = activeNetworks.isEmpty()
                 activeNetworks.add(network)
-                if (wasEmpty) {
-                    if (isTunnelPaused) {
-                        isTunnelPaused = false
-                        Log.d("TunnelService", "Сеть появилась, возобновляем туннель")
-                        TunnelManager.resume()
-                        updateNotification("Подключение...")
-                    } else {
-                        handleNetworkChange()
-                    }
-                } else {
-                    handleNetworkChange()
+                // Появление ЛЮБОЙ сети больше не перезапускает транспорт: телефон
+                // на Wi-Fi постоянно гасит и поднимает мобильную сеть ради
+                // батареи, и каждый такой цикл убивал туннель. Смену маршрута
+                // ловит defaultNetworkCallback, здесь — только выход из паузы,
+                // когда сетей не было вовсе.
+                if (wasEmpty && isTunnelPaused) {
+                    isTunnelPaused = false
+                    Log.d("TunnelService", "Сеть появилась, возобновляем туннель")
+                    TunnelManager.resume()
+                    updateNotification("Подключение...")
                 }
             }
 
             override fun onLost(network: Network) {
                 super.onLost(network)
                 activeNetworks.remove(network)
-                if (activeNetworks.isEmpty()) {
-                    if (TunnelManager.running.value && !isTunnelPaused) {
-                        isTunnelPaused = true
-                        Log.d("TunnelService", "Сеть потеряна, приостанавливаем туннель")
-                        TunnelManager.pause()
-                        updateNotification("Ожидание сети (Фоновый сон)")
-                    }
-                } else {
-                    // Пропала одна сеть, но другая осталась — самый частый случай
-                    // (ушёл из дома: Wi-Fi отвалился, мобильная уже была поднята).
-                    // Раньше эта ветка не делала ничего, и туннель оставался на
-                    // сокете мёртвого интерфейса.
-                    Log.d("TunnelService", "Сеть сменилась (осталось ${activeNetworks.size}), перезапуск транспорта")
-                    handleNetworkChange()
+                // ВАЖНО: на потерю отдельной сети перезапускаться НЕЛЬЗЯ.
+                // Телефон на Wi-Fi регулярно сам гасит и поднимает мобильную
+                // сеть ради батареи — реакция на каждое такое событие убивала
+                // туннель по кругу. Смену маршрута ловит defaultNetworkCallback.
+                if (activeNetworks.isEmpty() && TunnelManager.running.value && !isTunnelPaused) {
+                    isTunnelPaused = true
+                    Log.d("TunnelService", "Сеть потеряна, приостанавливаем туннель")
+                    TunnelManager.pause()
+                    updateNotification("Ожидание сети (Фоновый сон)")
                 }
             }
         }
@@ -255,6 +251,37 @@ class TunnelService : Service() {
             .build()
             
         connectivityManager?.registerNetworkCallback(request, networkCallback!!)
+
+        // Отдельно следим за сетью ПО УМОЛЧАНИЮ — именно через неё уходит трафик
+        // Go-процесса. Её смена (Wi-Fi → мобильная) и есть тот случай, когда
+        // сокеты привязаны к умершему интерфейсу и нужен перезапуск.
+        defaultNetworkCallback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                super.onAvailable(network)
+                // Когда туннель поднимается, сетью по умолчанию становится он сам.
+                // Без этой проверки получился бы цикл: подключились → маршрут
+                // сменился на tun → перезапуск → туннель упал → маршрут вернулся
+                // на Wi-Fi → снова перезапуск.
+                val caps = connectivityManager?.getNetworkCapabilities(network)
+                if (caps != null && !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)) {
+                    return
+                }
+
+                val previous = currentDefaultNetwork
+                currentDefaultNetwork = network
+                if (previous != null && previous != network) {
+                    Log.d("TunnelService", "Сменилась сеть по умолчанию, перезапуск транспорта")
+                    handleNetworkChange()
+                }
+            }
+
+            override fun onLost(network: Network) {
+                super.onLost(network)
+                // Новый маршрут придёт отдельным onAvailable — там и перезапустимся.
+                if (currentDefaultNetwork == network) currentDefaultNetwork = null
+            }
+        }
+        connectivityManager?.registerDefaultNetworkCallback(defaultNetworkCallback!!)
     }
     
     private fun handleNetworkChange() {
@@ -458,6 +485,9 @@ class TunnelService : Service() {
         super.onDestroy()
         networkChangeJob?.cancel()
         networkCallback?.let {
+            connectivityManager?.unregisterNetworkCallback(it)
+        }
+        defaultNetworkCallback?.let {
             connectivityManager?.unregisterNetworkCallback(it)
         }
         stopTunnel()
