@@ -147,12 +147,14 @@ func WorkerGroup(
 					return
 				}
 
-				getConf := false
-				if shouldGetConfig && atomic.LoadInt32(&configSent) == 0 {
-					getConf = atomic.CompareAndSwapInt32(&configRequestInFlight, 0, 1)
-				}
+				// Право на запрос конфига заранее НЕ резервируем. Раньше его
+				// забирал первый воркер перед каждой своей попыткой, и если
+				// именно ему не везло с рукопожатием — а живыми остаются две
+				// сессии из девяти — конфиг не запрашивал никто: право занято
+				// тем, кто чаще всех падает. Теперь его берёт тот, кто реально
+				// установил соединение (внутри RunSession).
 				var cc chan<- string
-				if getConf {
+				if shouldGetConfig && atomic.LoadInt32(&configSent) == 0 {
 					cc = configCh
 				}
 
@@ -161,25 +163,13 @@ func WorkerGroup(
 				credsSnapshot.TurnURLs = cloneStringSlice(creds.TurnURLs)
 				credsMu.RUnlock()
 
-				// Канал конфига отдаём ЛЮБОМУ воркеру первой группы: право на
-				// запрос он возьмёт сам, когда соединение установится.
-				chForSession := cc
-				if chForSession == nil && shouldGetConfig && atomic.LoadInt32(&configSent) == 0 {
-					chForSession = configCh
-				}
-
 				configDelivered, sessErr := RunSession(ctx, tp, peer, d, localPort,
-					getConf, chForSession, wid, &credsSnapshot, deviceID, password, stats,
+					false, cc, wid, &credsSnapshot, deviceID, password, stats,
 					&configSent, &configRequestInFlight)
 
 				quotaRetry := false
-				// configDelivered может прийти и от воркера, который взял право
-				// уже внутри сессии, поэтому смотрим на результат, а не на то,
-				// кому право выдали заранее.
 				if configDelivered {
 					atomic.StoreInt32(&configSent, 1)
-					atomic.StoreInt32(&configRequestInFlight, 0)
-				} else if getConf {
 					atomic.StoreInt32(&configRequestInFlight, 0)
 				}
 
