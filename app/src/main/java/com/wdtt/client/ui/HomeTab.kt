@@ -192,21 +192,6 @@ fun PrivateerHome(settingsStore: SettingsStore) {
     }
 
     Box(Modifier.fillMaxSize().background(BG)) {
-        // Кнопка диагностики. Раньше этот экран открывался долгим нажатием на
-        // заголовок — догадаться было невозможно, и при разборе проблем люди
-        // не могли прислать логи.
-        IconButton(
-            onClick = { showDiag = true },
-            modifier = Modifier.align(Alignment.TopEnd).padding(top = 18.dp, end = 10.dp)
-        ) {
-            Icon(
-                Icons.Filled.Info,
-                contentDescription = "Диагностика",
-                tint = TXT_DIM,
-                modifier = Modifier.size(20.dp)
-            )
-        }
-
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -290,6 +275,22 @@ fun PrivateerHome(settingsStore: SettingsStore) {
                     .padding(horizontal = 20.dp, vertical = 16.dp),
             )
             Spacer(Modifier.height(20.dp))
+        }
+
+        // Кнопка диагностики. Объявлена ПОСЛЕ колонки намеренно: в Compose то,
+        // что ниже по коду, рисуется поверх и первым получает нажатия. Если
+        // поставить её выше, прокручиваемая колонка накрывает кнопку целиком и
+        // та перестаёт реагировать на тапы.
+        IconButton(
+            onClick = { showDiag = true },
+            modifier = Modifier.align(Alignment.TopEnd).padding(top = 18.dp, end = 10.dp)
+        ) {
+            Icon(
+                Icons.Filled.Info,
+                contentDescription = "Диагностика",
+                tint = TXT_DIM,
+                modifier = Modifier.size(20.dp)
+            )
         }
     }
 
