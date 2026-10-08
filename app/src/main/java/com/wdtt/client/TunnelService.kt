@@ -185,7 +185,14 @@ class TunnelService : Service() {
         // Вызываем всегда — дёшево, а WebView создаётся на лету при каждом запросе капчи
         CaptchaWebViewManager.onTunnelStart(applicationContext)
 
-        TunnelManager.start(this, params, forceStart)
+        // Именованный аргумент принципиален: сигнатура start(context, params,
+        // isSwitching, forceStart), и позиционный вызов отправлял forceStart в
+        // isSwitching. Кнопка «Всё равно подключиться» из-за этого запускала
+        // туннель как «переключение сети»: пропускалась инициализация (параметры
+        // подключения оставались пустыми, из-за чего переподключение при смене
+        // сети не работало вовсе) и снималась защита от повторного запуска —
+        // каждое нажатие плодило ещё один Go-процесс поверх живого.
+        TunnelManager.start(this, params, forceStart = forceStart)
         startStatsUpdater()
     }
 
