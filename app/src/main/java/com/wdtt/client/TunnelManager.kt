@@ -67,7 +67,17 @@ object TunnelManager {
     private var lastSavedTrafficMb = 0.0
     private var lastSessionTrafficMb = 0.0
 
+    // running = «Go-процесс сейчас жив», desiredRunning = «пользователь хочет туннель».
+    // Раньше это был один флаг, и он падал в false на каждом намеренном убийстве
+    // процесса (перезапуск при смене сети, вотчдог, пауза). Сервис видел false и
+    // убивал себя вместе с туннелем — отсюда и мигающая плашка, и обрыв при
+    // переходе Wi-Fi → мобильная сеть.
     val running = MutableStateFlow(false)
+    val desiredRunning = MutableStateFlow(false)
+
+    // Поколение процесса: читатель логов умирающего процесса не должен сбрасывать
+    // running у уже запущенного следующего.
+    private var processGeneration = 0
     val logs = MutableStateFlow<List<LogEntry>>(emptyList())
     val unreadErrorCount = MutableStateFlow(0)
     val config = MutableStateFlow<String?>(null)
@@ -143,6 +153,7 @@ object TunnelManager {
     fun start(context: Context, params: TunnelParams, isSwitching: Boolean = false, forceStart: Boolean = false) {
         android.util.Log.d("WDTT", "TunnelManager.start() called. isSwitching=$isSwitching, forceStart=$forceStart, running=${running.value}")
         if (running.value && !isSwitching) return
+        desiredRunning.value = true
         
         val appContext = context.applicationContext // Защита от Memory Leak
         
@@ -191,6 +202,7 @@ object TunnelManager {
                     if (!SubscriptionAuth.isAllowed(appContext, activeProfileId)) {
                         updateLog("sub_inactive", "❌ Подписка неактивна. Продлите доступ.", 99, true)
                         running.value = false
+                        desiredRunning.value = false
                         return@launch
                     }
 
@@ -201,6 +213,7 @@ object TunnelManager {
                                 if (!hideWarning) {
                                     updateLog("bs_check_fail", "❌ Подключение отклонено: БС не включены", 99, true)
                                     running.value = false
+                                    desiredRunning.value = false
                                     showBlockerWarning.value = true
                                     android.util.Log.d("WDTT", "Network blocked, returning.")
                                     return@launch
@@ -310,20 +323,22 @@ object TunnelManager {
                 processStartedAtMs = System.currentTimeMillis()
                 wrapAuthTimeoutCount = 0
                 lastActiveAtMs = 0L
+                processGeneration++
                 running.value = true
-                startLogReader()
+                startLogReader(processGeneration)
                 startWatchdog(appContext, params)
 
             } catch (e: Exception) {
                 updateLog("critical_start_error", "Критическая ошибка запуска: ${e.message}", 99, true)
                 e.printStackTrace()
                 running.value = false
+                desiredRunning.value = false
             }
         }
     }
 
     @SuppressLint("StaticFieldLeak")
-    private fun startLogReader() {
+    private fun startLogReader(generation: Int) {
         readerJob = scope.launch {
             val reader = process?.inputStream?.bufferedReader() ?: return@launch
             var collectingConfig = false
@@ -671,8 +686,12 @@ object TunnelManager {
                 } catch (_: IllegalThreadStateException) {
                     process?.destroy()
                 }
-                running.value = false
-                process = null
+                // Только если нас не обогнал новый процесс: иначе читатель
+                // предыдущего поколения погасит флаг уже работающему туннелю.
+                if (generation == processGeneration) {
+                    running.value = false
+                    process = null
+                }
             }
         }
     }
@@ -735,7 +754,7 @@ object TunnelManager {
         watchdogJob = scope.launch {
             var zeroWorkersSince = 0L
             delay(10_000) // Даём 10 сек на старт
-            while (isActive && running.value) {
+            while (isActive && desiredRunning.value) {
                 val proc = process
                 if (proc == null || !proc.isAlive) {
                     // Go-процесс мёртв! применяем экспоненциальный бэкофф перед перезапуском
@@ -745,7 +764,7 @@ object TunnelManager {
                     forceRegenerateUA = true
                     killProcess()
                     delay(backoffMs)
-                    if (running.value) {
+                    if (desiredRunning.value) {
                         restartAttempts = (restartAttempts + 1).coerceAtMost(6)
                         start(context, params, isSwitching = true)
                     }
@@ -771,7 +790,7 @@ object TunnelManager {
                         forceRegenerateUA = true
                         killProcess()
                         delay(2000)
-                        if (running.value) {
+                        if (desiredRunning.value) {
                             start(context, params, isSwitching = true)
                         }
                         return@launch
@@ -795,7 +814,10 @@ object TunnelManager {
             withContext(Dispatchers.IO) {
                 ensureTransportStopped(params.port)
             }
-            if (running.value) {
+            // Проверяем ИМЕНИЕ, а не running: ensureTransportStopped выше убил
+            // процесс, и running к этому моменту всегда false — из-за этого
+            // перезапуск при смене сети не происходил никогда.
+            if (desiredRunning.value) {
                 start(context, params, isSwitching = true)
             }
         }
@@ -908,6 +930,9 @@ object TunnelManager {
         lastSessionTrafficMb = 0.0
     }
 
+    // Временная остановка процесса перед немедленным перезапуском (переключение
+    // на запасной хеш). desiredRunning НЕ трогаем: намерение пользователя не
+    // изменилось, а сервис смотрит именно на него.
     private fun stopOnlyProcess() {
         saveRemainingTraffic()
         killProcess()
@@ -925,6 +950,7 @@ object TunnelManager {
         }
         killProcess()
         running.value = false
+        desiredRunning.value = false
         activeWorkers.value = 0
         currentParams = null
         ManlCaptchaWebViewManager.cancelCaptcha()
@@ -940,6 +966,7 @@ object TunnelManager {
         withContext(Dispatchers.IO) {
             ensureTransportStopped(port)
             running.value = false
+            desiredRunning.value = false
             activeWorkers.value = 0
             currentParams = null
             ManlCaptchaWebViewManager.cancelCaptcha()

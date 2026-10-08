@@ -29,6 +29,16 @@ import kotlinx.coroutines.launch
 private const val TUNNEL_NOTIFICATION_CHANNEL_ID = "wdtt_tunnel_v4"
 private const val TUNNEL_NOTIFICATION_ID = 1
 
+// Сколько ждать поднятия туннеля, пока пользователь его хочет, прежде чем
+// честно остановиться. Перекрывает самый долгий путь: получение ключей VK,
+// дозвон до TURN и рукопожатие DTLS с бэкоффом вотчдога.
+private const val TUNNEL_DOWN_TIMEOUT_MS = 120_000L
+
+// Сколько ждать, пока события смены сети перестанут сыпаться, и как часто
+// максимум перезапускать транспорт.
+private const val NETWORK_CHANGE_COALESCE_MS = 1_500L
+private const val NETWORK_CHANGE_MIN_INTERVAL_MS = 5_000L
+
 class TunnelService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
@@ -39,6 +49,7 @@ class TunnelService : Service() {
     private var connectivityManager: ConnectivityManager? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var lastNetworkChangeTime = 0L
+    private var networkChangeJob: Job? = null
     private val activeNetworks = mutableSetOf<Network>()
     private var isTunnelPaused = false
 
@@ -218,11 +229,20 @@ class TunnelService : Service() {
             override fun onLost(network: Network) {
                 super.onLost(network)
                 activeNetworks.remove(network)
-                if (activeNetworks.isEmpty() && TunnelManager.running.value && !isTunnelPaused) {
-                    isTunnelPaused = true
-                    Log.d("TunnelService", "Сеть потеряна, приостанавливаем туннель")
-                    TunnelManager.pause()
-                    updateNotification("Ожидание сети (Фоновый сон)")
+                if (activeNetworks.isEmpty()) {
+                    if (TunnelManager.running.value && !isTunnelPaused) {
+                        isTunnelPaused = true
+                        Log.d("TunnelService", "Сеть потеряна, приостанавливаем туннель")
+                        TunnelManager.pause()
+                        updateNotification("Ожидание сети (Фоновый сон)")
+                    }
+                } else {
+                    // Пропала одна сеть, но другая осталась — самый частый случай
+                    // (ушёл из дома: Wi-Fi отвалился, мобильная уже была поднята).
+                    // Раньше эта ветка не делала ничего, и туннель оставался на
+                    // сокете мёртвого интерфейса.
+                    Log.d("TunnelService", "Сеть сменилась (осталось ${activeNetworks.size}), перезапуск транспорта")
+                    handleNetworkChange()
                 }
             }
         }
@@ -238,11 +258,19 @@ class TunnelService : Service() {
     }
     
     private fun handleNetworkChange() {
-        val now = System.currentTimeMillis()
-        if (now - lastNetworkChangeTime < 5000) return
-        lastNetworkChangeTime = now
-
-        if (TunnelManager.running.value && !isTunnelPaused) {
+        // Коалесинг вместо отбрасывания: при переключении сетей события сыплются
+        // пачкой, и прежний `return` по таймеру просто терял последнее из них —
+        // перезапуск не случался вовсе. Теперь откладываем и схлопываем.
+        networkChangeJob?.cancel()
+        networkChangeJob = TunnelManager.scope.launch {
+            delay(NETWORK_CHANGE_COALESCE_MS)
+            val sinceLast = System.currentTimeMillis() - lastNetworkChangeTime
+            if (sinceLast < NETWORK_CHANGE_MIN_INTERVAL_MS) {
+                // Защита от шторма на нестабильном Wi-Fi.
+                delay(NETWORK_CHANGE_MIN_INTERVAL_MS - sinceLast)
+            }
+            if (!TunnelManager.desiredRunning.value || isTunnelPaused) return@launch
+            lastNetworkChangeTime = System.currentTimeMillis()
             Log.d("TunnelService", "Сеть изменилась, мягкий перезапуск Go-клиента")
             TunnelManager.restartTransport()
         }
@@ -313,12 +341,35 @@ class TunnelService : Service() {
         updateJob?.cancel()
         updateJob = TunnelManager.scope.launch(Dispatchers.Main) {
             delay(1000)
+            var downSinceMs = 0L
             while (isActive) {
-                if (!TunnelManager.running.value && !isTunnelPaused) {
-                    // Туннель полностью остановлен (не на паузе) — убиваем сервис
+                // Смотрим на НАМЕРЕНИЕ, а не на живость процесса. Раньше здесь
+                // стоял running, который падает в false на каждом перезапуске
+                // (смена сети, вотчдог, пауза) — сервис успевал убить себя в эту
+                // щель, уведомление пропадало, туннель опускался, и система
+                // поднимала всё заново через START_STICKY. Отсюда мигающая плашка.
+                if (!TunnelManager.desiredRunning.value && !isTunnelPaused) {
                     stopSelf()
                     break
                 }
+
+                // Страховка от зависания: намерение есть, а процесс не поднимается.
+                // Без неё сервис мог бы вечно висеть с уведомлением и wakelock.
+                if (!TunnelManager.running.value && !isTunnelPaused) {
+                    if (downSinceMs == 0L) {
+                        downSinceMs = System.currentTimeMillis()
+                        updateNotification("Переподключение...")
+                    } else if (System.currentTimeMillis() - downSinceMs > TUNNEL_DOWN_TIMEOUT_MS) {
+                        Log.w("TunnelService", "Туннель не поднялся за ${TUNNEL_DOWN_TIMEOUT_MS / 1000}с — останавливаемся")
+                        TunnelManager.stop()
+                        stopSelf()
+                        break
+                    }
+                    delay(2000)
+                    continue
+                }
+
+                downSinceMs = 0L
                 if (!isTunnelPaused) {
                     updateNotification(buildTunnelNotificationText())
                 }
@@ -405,6 +456,7 @@ class TunnelService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        networkChangeJob?.cancel()
         networkCallback?.let {
             connectivityManager?.unregisterNetworkCallback(it)
         }

@@ -18,6 +18,8 @@ object PingHelper {
      * Executes a ping command via the proxy-turn-vk Go binary in -ping-only mode.
      * Returns the latency in milliseconds, or -1 if it fails or times out.
      */
+    private const val PING_TIMEOUT_MS = 60_000L
+
     suspend fun measurePing(context: android.content.Context, profile: ConnectionProfile): Long = withContext(Dispatchers.IO) {
         android.util.Log.d("PingHelper", "=== Starting ping for profile: ${profile.id} peer=${profile.peer} ===")
         try {
@@ -83,20 +85,24 @@ object PingHelper {
                 }
             }
 
-            // Wait for process with timeout
+            // Бюджет времени. Прежние 20 секунд не покрывали реальный путь:
+            // старт процесса + пять запросов к VK за ключами + дозвон до TURN +
+            // рукопожатие DTLS. В боевом подключении на одно только рукопожатие
+            // отведено 50 секунд — замер просто не успевал и всегда возвращал -1.
             var exitVal = -1
             try {
-                withTimeout(20000L) { // 20 seconds - enough for VK cred fetch + DTLS handshake
+                withTimeout(PING_TIMEOUT_MS) {
                     while (process.isAlive) {
                         delay(100)
                     }
                 }
                 exitVal = process.exitValue()
-                // Give output reader a moment to finish
-                delay(200)
+                // Дожидаемся читателя, а не спим наугад: строка PING_RESULT могла
+                // прийти позже фиксированной паузы, и результат терялся.
+                outputJob.join()
             } catch (e: TimeoutCancellationException) {
                 process.destroyForcibly()
-                android.util.Log.e("PingHelper", "Ping process timed out after 20s")
+                android.util.Log.e("PingHelper", "Ping process timed out after ${PING_TIMEOUT_MS / 1000}s")
             }
 
             android.util.Log.d("PingHelper", "Process finished: exitVal=$exitVal timeMs=$timeMs")

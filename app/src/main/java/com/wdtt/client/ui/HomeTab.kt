@@ -104,6 +104,7 @@ fun PrivateerHome(settingsStore: SettingsStore) {
     val profiles by profilesStore.profiles.collectAsStateWithLifecycle(initialValue = emptyList<ConnectionProfile>())
     val subs by profilesStore.subscriptions.collectAsStateWithLifecycle(initialValue = emptyList<ProfileSubscription>())
     val currentProfileId by settingsStore.currentProfileId.collectAsStateWithLifecycle(initialValue = "")
+    val globalHashes by settingsStore.globalVkHashes.collectAsStateWithLifecycle(initialValue = "")
 
     var showAddDialog by remember { mutableStateOf(false) }
     var showDiag by remember { mutableStateOf(false) }
@@ -129,19 +130,38 @@ fun PrivateerHome(settingsStore: SettingsStore) {
         ).show()
     }
 
-    fun ping(p: ConnectionProfile) {
+    // Профиль может использовать общие хеши — тогда в нём самом поле пустое, и
+    // замер отваливался мгновенно. В списке профилей это уже учтено, на главной
+    // забыли.
+    fun withEffectiveHashes(p: ConnectionProfile): ConnectionProfile {
+        val effective = if (p.useGlobalHashes) globalHashes.ifEmpty { p.vkHashes } else p.vkHashes
+        return if (effective == p.vkHashes) p else p.copy(vkHashes = effective)
+    }
+
+    suspend fun pingNow(p: ConnectionProfile) {
         if (PingHelper.pingingState[p.id] == true) return
         PingHelper.pingingState[p.id] = true
-        scope.launch {
-            val r = PingHelper.measurePing(context, p)
-            PingHelper.pingResults[p.id] = r
+        try {
+            PingHelper.pingResults[p.id] = PingHelper.measurePing(context, withEffectiveHashes(p))
+        } finally {
+            // Без finally уход с экрана посреди замера оставлял профиль
+            // «пингуется» навсегда, и повторный тап уже ничего не запускал.
             PingHelper.pingingState[p.id] = false
         }
     }
 
-    // авто-пинг при раскрытии списка (один раз для непроверенных)
+    fun ping(p: ConnectionProfile) {
+        scope.launch { pingNow(p) }
+    }
+
+    // Авто-пинг при раскрытии списка — ПО ОЧЕРЕДИ. Параллельный запуск дёргал
+    // VK со всех профилей разом: это рискует упереться в ограничение частоты и
+    // получить капчу с блокировкой, которая ударит и по живому туннелю.
     LaunchedEffect(expanded, profiles.size) {
-        if (expanded) profiles.forEach { if (PingHelper.pingResults[it.id] == null) ping(it) }
+        if (expanded) {
+            profiles.filter { PingHelper.pingResults[it.id] == null }
+                .forEach { pingNow(it) }
+        }
     }
 
     val hasProfile = profiles.isNotEmpty()
