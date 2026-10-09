@@ -14,10 +14,10 @@ android {
         applicationId = "zip.privateer.mobile"
         minSdk = 28
         targetSdk = 35
-        versionCode = 25
+        versionCode = 26
         // Схема версий: чистый semver БЕЗ суффикса (1.2.6, 1.2.7...), иначе авто-апдейт
         // не видит новизну (versionParts обрезает по дефису). Каждый релиз — +patch.
-        versionName = "1.2.8"
+        versionName = "1.2.9"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
