@@ -34,7 +34,10 @@ const (
 )
 
 // Handshake semaphore: limit to 3 concurrent DTLS handshakes
-var handshakeSem = make(chan struct{}, 3)
+// Сколько рукопожатий идёт одновременно. Было 3 при девяти воркерах: очередь
+// двигалась медленно, а каждое неудачное рукопожатие держало слот до таймаута,
+// блокируя остальных. На телефоне это дешёвая операция, узкое место — сеть.
+var handshakeSem = make(chan struct{}, 6)
 
 // NullLoggerFactory подавляет логи pion
 type NullLoggerFactory struct{}
@@ -293,6 +296,7 @@ func RunSession(
 		// No ServerName (SNI) — less detectable by DPI
 	}
 
+	handshakeStartedAt := time.Now()
 	dtlsConn, err := dtls.Client(pipeB, peer, dtlsCfg)
 	if err != nil {
 		<-handshakeSem
@@ -300,7 +304,10 @@ func RunSession(
 	}
 	defer dtlsConn.Close()
 
-	hctx, hcancel := context.WithTimeout(sessCtx, 50*time.Second)
+	// 50 секунд — слишком щедро для залипшего ретранслятора: слот семафора всё
+	// это время занят, и живые воркеры ждут впустую. Успешные рукопожатия
+	// укладываются в разы меньше.
+	hctx, hcancel := context.WithTimeout(sessCtx, 35*time.Second)
 	log.Printf("[ВОРКЕР #%d] [DTLS] Рукопожатие (Handshake)...", sessionID)
 	err = dtlsConn.HandshakeContext(hctx)
 	hcancel()
@@ -315,7 +322,7 @@ func RunSession(
 		}
 		return false, fmt.Errorf("DTLS хендшейк: %w", err)
 	}
-	log.Printf("[ВОРКЕР #%d] [DTLS] Соединение установлено ✓", sessionID)
+	log.Printf("[ВОРКЕР #%d] [DTLS] Соединение установлено ✓ за %.1fс", sessionID, time.Since(handshakeStartedAt).Seconds())
 
 	atomic.AddInt32(&stats.ActiveConnections, 1)
 	defer atomic.AddInt32(&stats.ActiveConnections, -1)
