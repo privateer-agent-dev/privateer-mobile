@@ -324,8 +324,8 @@ func RunSession(
 	}
 	log.Printf("[ВОРКЕР #%d] [DTLS] Соединение установлено ✓ за %.1fс", sessionID, time.Since(handshakeStartedAt).Seconds())
 
-	atomic.AddInt32(&stats.ActiveConnections, 1)
-	defer atomic.AddInt32(&stats.ActiveConnections, -1)
+	stats.ActiveConnections.Add(1)
+	defer stats.ActiveConnections.Add(-1)
 
 	// Запрос конфига — право берём здесь, когда соединение уже установлено.
 	claimedConfig := false
